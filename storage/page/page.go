@@ -9,6 +9,8 @@ package page
 import (
 	"encoding/binary"
 	"math"
+
+	"github.com/pkg/errors"
 )
 
 /*
@@ -82,4 +84,61 @@ func CalculateFreeSpace(page PagePtr) int {
 	// free space
 	freeSpace := upper - lower
 	return int(freeSpace)
+}
+
+/*
+CompactPage compacts the tuples within page. this does not compact slot.
+
+After vacuum removes dead tuples and sets the slot flag unused, then the page can be compacted.
+VACUUM command does not compact slot so unused slot is unused even after VACUUM command is executed.
+VACUUM FULL command compacts even slot so unused slot is compacted.
+ex:
+- slot index 0, 1, 2 is used and slot 1 points to dead tuple
+- when VACUUM FULL command is executed, the data within slot index 2 is moved to slot index 1
+- when VACUUM command is executed, the data within slot index 2 is still there
+slot index is called ctid in postgres, and you can confirm it like the query below
+- SELECT s.ctid, s.* from sample s;
+- VACUUM;
+
+TODO: the logic in ppdb is not optimized, so fix this later
+ex: should consider whether the slots are sorted or not, and moves only tuples necessary for re-location
+the case slots are not sorted can happen after the page is compacted and freed slot is used when insert new tuple
+see https://github.com/postgres/postgres/blob/2cd2569c72b8920048e35c31c9be30a6170e1410/src/backend/storage/page/bufpage.c#L474
+see https://github.com/postgres/postgres/blob/2cd2569c72b8920048e35c31c9be30a6170e1410/src/backend/storage/page/bufpage.c#L682-L699
+*/
+func CompactPage(page PagePtr) error {
+	// IMPORTANT: currently, scans/moves(compacts) all used tuples even when re-location is not necessary. this is not optimized
+	// reset upper offset
+	upperOffset := GetSpecialSpaceOffset(page)
+	var constructed []byte
+
+	nidx := GetNSlotIndex(page)
+	if nidx == InvalidSlotIndex {
+		// no slot allocated, so just return
+		return nil
+	}
+	// run loop and construct and re-locate all tuples except unused tuples
+	for i := int(nidx); i >= int(FirstSlotIndex); i-- {
+		slot, err := GetSlot(page, SlotIndex(i))
+		if err != nil {
+			return errors.Wrap(err, "GetSlot failed")
+		}
+		if IsUnused(slot) {
+			continue
+		}
+		// compact
+		io := getItemOffset(slot)
+		is := getItemSize(slot)
+		item := page[io : io+itemOffset(is)]
+		constructed = append(constructed, item...)
+
+		// update item offset of the slot
+		upperOffset = upperOffset - offset(is)
+		setItemOffset(slot, itemOffset(upperOffset))
+	}
+	// insert compacted items into the page
+	size := len(constructed)
+	copy(page[upperOffset:upperOffset+offset(size)], constructed)
+	SetUpperOffset(page, offset(upperOffset))
+	return nil
 }
