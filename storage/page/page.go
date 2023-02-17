@@ -73,3 +73,13 @@ func IsInitialized(p PagePtr) bool {
 func CalculateFileOffset(pageID PageID) int64 {
 	return int64(pageID * PageSize)
 }
+
+// CalculateFreeSpace calculates free space within the page
+// see: https://github.com/postgres/postgres/blob/2cd2569c72b8920048e35c31c9be30a6170e1410/src/backend/storage/page/bufpage.c#L907
+func CalculateFreeSpace(page PagePtr) int {
+	lower := GetLowerOffset(page)
+	upper := GetUpperOffset(page)
+	// free space
+	freeSpace := upper - lower
+	return int(freeSpace)
+}
