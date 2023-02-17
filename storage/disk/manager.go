@@ -94,6 +94,47 @@ func (m *Manager) WritePage(pageID page.PageID, p page.PagePtr, skipFsync bool) 
 	return nil
 }
 
+// ExtendPage extends page and returns the new pageID
+// when extend page, postgres writes new 0-filled page to the EOF, so does ppdb
+// TODO: have to consider concurrent access? (I'm not sure)
+// see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L449
+func (m *Manager) ExtendPage(skipFsync bool) (page.PageID, error) {
+	pageID, err := m.GetNPageID()
+	if err != nil {
+		return page.InvalidPageID, errors.Wrap(err, "GetNPageID failed")
+	}
+
+	// when the file has already been extend to the max page id, it cannot be extended anymore
+	if pageID == page.MaxPageID {
+		return pageID, errors.New("the page is MaxPageID and cannot be extended anymore")
+	}
+
+	pid := pageID + 1
+	if err := m.WritePage(pid, page.NewPagePtr(), skipFsync); err != nil {
+		return page.InvalidPageID, errors.Wrap(err, "WritePage failed")
+	}
+	return pid, nil
+}
+
+// GetNPageID returns the last PageID of the file
+// see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L801
+func (m *Manager) GetNPageID() (page.PageID, error) {
+	// TODO: fix getDatabaseFile() later. this is temporary-defined function.
+	f := getDatabaseFile()
+	fi, err := f.Stat()
+	if err != nil {
+		return page.InvalidPageID, errors.Wrap(err, "f.Stat failed")
+	}
+	size := fi.Size()
+	if size == 0 {
+		return page.InvalidPageID, nil
+	}
+	// ignore torn page
+	// see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L1366
+	lastPageID := (size / page.PageSize) - 1
+	return page.PageID(lastPageID), nil
+}
+
 // temporary defined function. this returns the file
 var getDatabaseFile = func() *os.File {
 	return nil

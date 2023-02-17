@@ -59,3 +59,26 @@ func TestWritePage(t *testing.T) {
 	// check the equality of page
 	assert.True(t, bytes.Equal(got[:], expected[:]))
 }
+
+func TestExtendPage(t *testing.T) {
+	dm, err := TestingNewManager(t)
+	assert.Nil(t, err)
+	nPageID := 2
+	// override the getDatabaseFile function for test
+	getDatabaseFile = func() *os.File {
+		path := filepath.Join(baseDir, "sampleTableFile")
+		f, err := os.Create(path)
+		assert.Nil(t, err)
+		temp := [page.PageSize]byte{'g', 'a'}
+		for i := 0; i <= nPageID; i++ {
+			_, err := f.Write(temp[:])
+			assert.Nil(t, err)
+		}
+		return f
+	}
+
+	expected := page.PageID(nPageID + 1)
+	got, err := dm.ExtendPage(false)
+	assert.Nil(t, err)
+	assert.Equal(t, expected, got)
+}
