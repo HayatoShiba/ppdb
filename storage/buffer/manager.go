@@ -135,3 +135,27 @@ func NewManager(dm *disk.Manager) *Manager {
 		descriptors: newDescriptors(),
 	}
 }
+
+// AcquireContentLock acquires buffer content lock
+// content lock has to be held when read/write page(buffer content)
+// TODO: maybe `descriptor` type should be exported
+func (m *Manager) AcquireContentLock(bufID BufferID, exclusive bool) {
+	desc := m.descriptors[bufID]
+	if exclusive {
+		desc.contentLock.Lock()
+	} else {
+		desc.contentLock.RLock()
+	}
+}
+
+// ReleaseContentLock releases buffer content lock
+// content lock has to be released after any operations to page(buffer content) is completed
+// TODO: maybe descriptor should be exported
+func (m *Manager) ReleaseContentLock(bufID BufferID, exclusive bool) {
+	desc := m.descriptors[bufID]
+	if exclusive {
+		desc.contentLock.Unlock()
+	} else {
+		desc.contentLock.RUnlock()
+	}
+}

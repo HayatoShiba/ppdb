@@ -56,7 +56,10 @@ https://github.com/postgres/postgres/blob/a448e49bcbe40fb72e1ed85af910dd216d45ba
 */
 package buffer
 
-import "sync/atomic"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // descriptor is buffer descriptor
 // see https://github.com/postgres/postgres/blob/a448e49bcbe40fb72e1ed85af910dd216d45bad8/src/include/storage/buf_internals.h#L196-L254
@@ -67,6 +70,10 @@ type descriptor struct {
 	nextFreeID BufferID
 	// state field. see the comment at the head of this file
 	state uint32
+	// contentLock for protecting the buffer content read/write
+	// in postgres, content lock is defined with LWLock
+	// for more details, see the comment at the head of /storage/buffer/manager.go
+	contentLock sync.RWMutex
 }
 
 // newDescriptors initializes descriptors for manager
