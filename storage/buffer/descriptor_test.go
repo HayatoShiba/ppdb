@@ -79,3 +79,73 @@ func TestIOInProgress(t *testing.T) {
 	// check clearIOInProgress is no problem when the bit is off
 	desc.clearIOInProgress()
 }
+
+func TestPin(t *testing.T) {
+	tests := []struct {
+		name     string
+		state    uint32
+		expected uint32
+	}{
+		{
+			name:     "no ref count and usage count",
+			state:    0x0,
+			expected: 0x4400,
+		},
+		{
+			name:     "ref count is one and usage count is one",
+			state:    0x4400,
+			expected: 0x8800,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			desc := &descriptor{
+				state: uint32(tt.state),
+			}
+			desc.pin()
+			assert.Equal(t, tt.expected, desc.state)
+		})
+	}
+}
+
+func TestUnpin(t *testing.T) {
+	var state uint32 = 0x4400
+	var expected uint32 = 0x400
+	desc := &descriptor{
+		state: state,
+	}
+	desc.unpin()
+	assert.Equal(t, expected, desc.state)
+}
+
+func TestReferenceCount(t *testing.T) {
+	// reference count is one
+	// 0b00000000000000000100010001000101
+	var state uint32 = 0x4445
+	desc := &descriptor{
+		state: state,
+	}
+	assert.Equal(t, 1, int(desc.referenceCount()))
+}
+
+func TestUsageCount(t *testing.T) {
+	// usage count is one
+	// 0b00000000000000000000010000000000
+	var state uint32 = 0x400
+	desc := &descriptor{
+		state: state,
+	}
+	assert.Equal(t, 1, int(desc.usageCount()))
+}
+
+func TestDecrementUsageCount(t *testing.T) {
+	// reference count is one and usage count is one
+	// 0b00000000000000000100010000000000
+	var state uint32 = 0x4400
+	desc := &descriptor{
+		state: state,
+	}
+	desc.decrementUsageCount()
+	assert.Equal(t, 0, int(desc.usageCount()))
+	assert.Equal(t, 1, int(desc.referenceCount()))
+}

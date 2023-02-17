@@ -208,6 +208,7 @@ func (desc *descriptor) clearDirty() {
 }
 
 // isDirty checks whether the descriptor is dirty
+// the caller usually has to hold header lock?(probably)
 func (desc *descriptor) isDirty() bool {
 	state := atomic.LoadUint32(&desc.state)
 	if state&bmDirty != 0 {
@@ -271,4 +272,100 @@ func (desc *descriptor) isIOInProgress() bool {
 		return true
 	}
 	return false
+}
+
+const (
+	// refCountOne is for increment of ref count
+	refCountOne uint32 = (1 << 14)
+	// usageCountOne is for increment of usage count
+	usageCountOne uint32 = (1 << 10)
+	// define max of usage count
+	// this is tradeoff between performance and the approximate eviction
+	// in postgres, maxUsageCount is 5
+	// see https://github.com/postgres/postgres/blob/a448e49bcbe40fb72e1ed85af910dd216d45bad8/src/include/storage/buf_internals.h#L69-L77
+	maxUsageCount uint32 = 3
+)
+
+// pin increments reference count and usage count.
+// CAS operation can be used to increase those at once, so header lock doesn't have to be held.
+// if buffer header lock is held by other goroutine, wait it
+func (desc *descriptor) pin() {
+	// kind of optimistic locking with cas operation
+	for {
+		oldState := atomic.LoadUint32(&desc.state)
+		// wait buffer header unlocked if it is locked
+		if oldState&bmLocked != 0 {
+			// wait header lock to be released
+			// because cas operation must not be executed when header lock held by other goroutine
+			// see the comment at the head of /storage/buffer/manager.go
+			// then update oldState with the state when header lock is released
+			oldState = desc.waitHeaderLockReleased()
+		}
+		// increment ref count and usage count when pin
+		// maybe should validate reference count overflow(although this does not happen in most cases, I assume)
+		state := oldState + refCountOne
+		if desc.usageCount() < maxUsageCount {
+			state = state + usageCountOne
+		}
+		// IMPORTANT: if the descriptor is locked here by other goroutine,
+		// CAS operation fails because oldState here is unlocked-state
+		if ok := atomic.CompareAndSwapUint32(&desc.state, oldState, state); ok {
+			break
+		}
+	}
+}
+
+// unpin decrements reference count
+// note: usage count is not decremented here. it is decremented by clock-sweep
+func (desc *descriptor) unpin() {
+	for {
+		oldState := atomic.LoadUint32(&desc.state)
+		// wait buffer header unlocked if it is locked
+		if oldState&bmLocked != 0 {
+			// wait header lock to be released
+			// because cas operation must not be executed when header lock held by other goroutine
+			// see the comment at the head of /storage/buffer/manager.go
+			// then update oldState with the state when header lock is released
+			oldState = desc.waitHeaderLockReleased()
+		}
+		state := oldState - refCountOne
+		if ok := atomic.CompareAndSwapUint32(&desc.state, oldState, state); ok {
+			break
+		}
+	}
+}
+
+// referenceCount returns reference count
+// the caller usually has to hold header lock?(probably)
+func (desc *descriptor) referenceCount() uint32 {
+	var mask uint32 = (1 << 14) - 1
+	refCount := desc.state & ^mask
+	return refCount >> 14
+}
+
+// usageCount returns usage count
+// the caller usually has to hold header lock?(probably)
+func (desc *descriptor) usageCount() uint32 {
+	state := desc.state << 18
+	var mask uint32 = (1 << 28) - 1
+	usageCount := state & ^mask
+	return usageCount >> 28
+}
+
+// decrementUsageCount decrements usage count
+// this is expected to be called by clock sweep
+// when clock sweep inspects buffer and it cannot be evicted, then this has to be called.
+// the caller usually has to hold header lock?(probably)
+// or maybe this should be implemented with cas operation for performance?
+func (desc *descriptor) decrementUsageCount() {
+	if desc.usageCount() == 0 {
+		return
+	}
+	for {
+		oldState := desc.state
+		state := oldState - usageCountOne
+		if ok := atomic.CompareAndSwapUint32(&desc.state, oldState, state); ok {
+			break
+		}
+	}
 }
