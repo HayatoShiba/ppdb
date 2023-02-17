@@ -4,6 +4,8 @@ import "testing"
 
 // TestingNewFileManager initializes disk manager with file storage.
 func TestingNewFileManager(t *testing.T) (*Manager, error) {
+	// update base dir with t.TempDir()
+	// because we want to remove the generated file after test is completed
 	baseDir = t.TempDir()
 	return NewManager()
 }

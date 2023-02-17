@@ -76,3 +76,49 @@ func TestExtendPage(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, expected, got)
 }
+
+func TestGetNPageID(t *testing.T) {
+	dm, err := TestingNewFileManager(t)
+	assert.Nil(t, err)
+
+	tests := []struct {
+		name     string
+		nPageID  page.PageID
+		expected page.PageID
+	}{
+		{
+			name:     "file size is 0",
+			nPageID:  0,
+			expected: page.InvalidPageID,
+		},
+		{
+			name:     "file size is 1",
+			nPageID:  1,
+			expected: page.FirstPageID,
+		},
+		{
+			name:     "file size is 2",
+			nPageID:  2,
+			expected: page.FirstPageID + 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// create test file
+			rel := common.Relation(1)
+			path := getRelationForkFilePath(rel, ForkNumberMain)
+			f, err := os.Create(path)
+			assert.Nil(t, err)
+
+			temp := [page.PageSize]byte{'g', 'a'}
+
+			for i := page.PageID(0); i < tt.nPageID; i++ {
+				_, err := f.Write(temp[:])
+				assert.Nil(t, err)
+			}
+			got, err := dm.GetNPageID(rel, ForkNumberMain)
+			assert.Nil(t, err)
+			assert.Equal(t, tt.expected, got)
+		})
+	}
+}
