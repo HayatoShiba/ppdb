@@ -21,6 +21,7 @@ package disk
 import (
 	"os"
 
+	"github.com/HayatoShiba/ppdb/storage/page"
 	"github.com/pkg/errors"
 )
 
@@ -50,4 +51,50 @@ func NewManager() (*Manager, error) {
 	return &Manager{
 		fds: make(map[string]*os.File),
 	}, nil
+}
+
+// ReadPage reads page from disk into page.PagePtr
+func (m *Manager) ReadPage(pageID page.PageID, p page.PagePtr) error {
+	offset := page.CalculateFileOffset(pageID)
+	// TODO: fix getDatabaseFile() later. this is temporary-defined function.
+	f := getDatabaseFile()
+
+	n, err := f.ReadAt(p[:], offset)
+	if err != nil {
+		return errors.Wrap(err, "ReadAt failed")
+	}
+	if n != len(p) {
+		return errors.Errorf("ReadAt failed to read the whole page: %d, page length is %d", n, len(p))
+	}
+	return nil
+}
+
+// WritePage writes page out to disk
+// see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L738
+func (m *Manager) WritePage(pageID page.PageID, p page.PagePtr, skipFsync bool) error {
+	offset := page.CalculateFileOffset(pageID)
+	// TODO: fix getDatabaseFile() later. this is temporary-defined function.
+	f := getDatabaseFile()
+
+	n, err := f.WriteAt(p[:], offset)
+	if err != nil {
+		return errors.Wrap(err, "WriteAt failed")
+	}
+	if n != len(p) {
+		return errors.Errorf("WriteAt failed to write the whole page: %d, the page length is %d", n, len(p))
+	}
+
+	if !skipFsync {
+		// postgres seems to send request to checkpointer at first?
+		// see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L789
+		if err := f.Sync(); err != nil {
+			return errors.Wrap(err, "Sync failed")
+		}
+	}
+	return nil
+}
+
+// temporary defined function. this returns the file
+var getDatabaseFile = func() *os.File {
+	return nil
 }
