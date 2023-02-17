@@ -6,7 +6,10 @@ Page is used not only by the main disk manager but also by the clog/wal disk man
 */
 package page
 
-import "math"
+import (
+	"encoding/binary"
+	"math"
+)
 
 /*
 PageSize is the byte size of page. 8KB is the default size in postgres
@@ -42,6 +45,27 @@ type PagePtr *[PageSize]byte
 func NewPagePtr() PagePtr {
 	p := &[PageSize]byte{}
 	return PagePtr(p)
+}
+
+// InitializePage initializes page
+// when extending new page, the page is 0-filled, so should be initialized with this function
+// see https://github.com/postgres/postgres/blob/2cd2569c72b8920048e35c31c9be30a6170e1410/src/backend/storage/page/bufpage.c#L35-L42
+func InitializePage(p PagePtr, specialSpaceSize uint16) {
+	SetLSN(p, 0)
+	SetFlags(p, 0)
+	SetLowerOffset(p, slotsOffset)
+	// upperOffset must be calculated from special space size
+	upper := offset(PageSize - specialSpaceSize)
+	SetUpperOffset(p, upper)
+	SetSpecialSpaceOffset(p, upper)
+}
+
+// IsInitialized checks whether the page has been already initialized
+// when the upperOffset is 0, then the page isn't initialized
+// see https://github.com/postgres/postgres/blob/bfcf1b34805f70df48eedeec237230d0cc1154a6/src/include/storage/bufpage.h#L231
+func IsInitialized(p PagePtr) bool {
+	lo := binary.LittleEndian.Uint16(p[upperOffsetOffset:specialSpaceOffsetOffset])
+	return lo != 0
 }
 
 // CalculateFileOffset calculates the page's offset within the file
