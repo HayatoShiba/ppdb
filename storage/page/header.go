@@ -72,6 +72,10 @@ type header struct {
 	specialSpaceOffset offset
 
 	// pd_prune_xid is omitted. define it later if necessary
+
+	// slot consists of tuple's information (offset/size/flag) which the slot points to
+	// The number of slots allocated can be calculated with page header size and lowerOffset
+	slots []Slot
 }
 
 // offset is the byte offset within the page
