@@ -21,6 +21,7 @@ package disk
 import (
 	"os"
 
+	"github.com/HayatoShiba/ppdb/common"
 	"github.com/HayatoShiba/ppdb/storage/page"
 	"github.com/pkg/errors"
 )
@@ -54,10 +55,12 @@ func NewManager() (*Manager, error) {
 }
 
 // ReadPage reads page from disk into page.PagePtr
-func (m *Manager) ReadPage(pageID page.PageID, p page.PagePtr) error {
+func (m *Manager) ReadPage(rel common.Relation, forkNum ForkNumber, pageID page.PageID, p page.PagePtr) error {
 	offset := page.CalculateFileOffset(pageID)
-	// TODO: fix getDatabaseFile() later. this is temporary-defined function.
-	f := getDatabaseFile()
+	f, err := m.openRelationForkFile(rel, forkNum)
+	if err != nil {
+		return errors.Wrap(err, "openRelationForkFile failed")
+	}
 
 	n, err := f.ReadAt(p[:], offset)
 	if err != nil {
@@ -71,10 +74,12 @@ func (m *Manager) ReadPage(pageID page.PageID, p page.PagePtr) error {
 
 // WritePage writes page out to disk
 // see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L738
-func (m *Manager) WritePage(pageID page.PageID, p page.PagePtr, skipFsync bool) error {
+func (m *Manager) WritePage(rel common.Relation, forkNum ForkNumber, pageID page.PageID, p page.PagePtr, skipFsync bool) error {
 	offset := page.CalculateFileOffset(pageID)
-	// TODO: fix getDatabaseFile() later. this is temporary-defined function.
-	f := getDatabaseFile()
+	f, err := m.openRelationForkFile(rel, forkNum)
+	if err != nil {
+		return errors.Wrap(err, "openRelationForkFile failed")
+	}
 
 	n, err := f.WriteAt(p[:], offset)
 	if err != nil {
@@ -98,8 +103,8 @@ func (m *Manager) WritePage(pageID page.PageID, p page.PagePtr, skipFsync bool) 
 // when extend page, postgres writes new 0-filled page to the EOF, so does ppdb
 // TODO: have to consider concurrent access? (I'm not sure)
 // see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L449
-func (m *Manager) ExtendPage(skipFsync bool) (page.PageID, error) {
-	pageID, err := m.GetNPageID()
+func (m *Manager) ExtendPage(rel common.Relation, forkNum ForkNumber, skipFsync bool) (page.PageID, error) {
+	pageID, err := m.GetNPageID(rel, forkNum)
 	if err != nil {
 		return page.InvalidPageID, errors.Wrap(err, "GetNPageID failed")
 	}
@@ -110,17 +115,20 @@ func (m *Manager) ExtendPage(skipFsync bool) (page.PageID, error) {
 	}
 
 	pid := pageID + 1
-	if err := m.WritePage(pid, page.NewPagePtr(), skipFsync); err != nil {
+	if err := m.WritePage(rel, forkNum, pid, page.NewPagePtr(), skipFsync); err != nil {
 		return page.InvalidPageID, errors.Wrap(err, "WritePage failed")
 	}
 	return pid, nil
 }
 
 // GetNPageID returns the last PageID of the file
+// maybe the last page id should be cached for the performance improvement
 // see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L801
-func (m *Manager) GetNPageID() (page.PageID, error) {
-	// TODO: fix getDatabaseFile() later. this is temporary-defined function.
-	f := getDatabaseFile()
+func (m *Manager) GetNPageID(rel common.Relation, forkNum ForkNumber) (page.PageID, error) {
+	f, err := m.openRelationForkFile(rel, forkNum)
+	if err != nil {
+		return page.InvalidPageID, errors.Wrap(err, "openRelationForkFile failed")
+	}
 	fi, err := f.Stat()
 	if err != nil {
 		return page.InvalidPageID, errors.Wrap(err, "f.Stat failed")
@@ -135,7 +143,19 @@ func (m *Manager) GetNPageID() (page.PageID, error) {
 	return page.PageID(lastPageID), nil
 }
 
-// temporary defined function. this returns the file
-var getDatabaseFile = func() *os.File {
-	return nil
+// openRelationForkFile opens database file under base directory
+func (m *Manager) openRelationForkFile(rel common.Relation, forkNum ForkNumber) (*os.File, error) {
+	filePath := getRelationForkFilePath(rel, forkNum)
+	// when file descriptor is cached, just return it
+	fd, ok := m.fds[filePath]
+	if ok {
+		return fd, nil
+	}
+	fd, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0700)
+	if err != nil {
+		return nil, errors.Wrap(err, "os.OpenFile failed")
+	}
+	// cache file descriptor when open the file
+	m.fds[filePath] = fd
+	return fd, nil
 }

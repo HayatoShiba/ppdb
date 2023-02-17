@@ -3,9 +3,9 @@ package disk
 import (
 	"bytes"
 	"os"
-	"path/filepath"
 	"testing"
 
+	"github.com/HayatoShiba/ppdb/common"
 	"github.com/HayatoShiba/ppdb/storage/page"
 	"github.com/stretchr/testify/assert"
 )
@@ -20,19 +20,18 @@ func TestReadPage(t *testing.T) {
 	dm, err := TestingNewManager(t)
 	assert.Nil(t, err)
 
+	// create test file
+	rel := common.Relation(1)
+	path := getRelationForkFilePath(rel, ForkNumberMain)
+	f, err := os.Create(path)
+	assert.Nil(t, err)
+
 	expected := [page.PageSize]byte{'g', 'a'}
-	// override the getDatabaseFile function for test
-	getDatabaseFile = func() *os.File {
-		path := filepath.Join(baseDir, "sampleTableFile")
-		f, err := os.Create(path)
-		assert.Nil(t, err)
-		_, err = f.Write(expected[:])
-		assert.Nil(t, err)
-		return f
-	}
+	_, err = f.Write(expected[:])
+	assert.Nil(t, err)
 
 	got := page.NewPagePtr()
-	err = dm.ReadPage(page.FirstPageID, got)
+	err = dm.ReadPage(rel, ForkNumberMain, page.FirstPageID, got)
 	assert.Nil(t, err)
 	assert.True(t, bytes.Equal(got[:], expected[:]))
 }
@@ -41,18 +40,12 @@ func TestWritePage(t *testing.T) {
 	dm, err := TestingNewManager(t)
 	assert.Nil(t, err)
 
-	path := filepath.Join(baseDir, "sampleTableFile")
-	// override the getDatabaseFile function for test
-	getDatabaseFile = func() *os.File {
-		f, err := os.Create(path)
-		assert.Nil(t, err)
-		return f
-	}
-
+	rel := common.Relation(1)
 	expected := [page.PageSize]byte{'g', 'a'}
-	err = dm.WritePage(page.FirstPageID, page.PagePtr(&expected), false)
+	err = dm.WritePage(rel, ForkNumberMain, page.FirstPageID, page.PagePtr(&expected), false)
 	assert.Nil(t, err)
 
+	path := getRelationForkFilePath(rel, ForkNumberMain)
 	got, err := os.ReadFile(path)
 	assert.Nil(t, err)
 
@@ -63,22 +56,23 @@ func TestWritePage(t *testing.T) {
 func TestExtendPage(t *testing.T) {
 	dm, err := TestingNewManager(t)
 	assert.Nil(t, err)
+
+	// create test file
+	rel := common.Relation(1)
+	path := getRelationForkFilePath(rel, ForkNumberMain)
+	f, err := os.Create(path)
+	assert.Nil(t, err)
+
+	temp := [page.PageSize]byte{'g', 'a'}
+
 	nPageID := 2
-	// override the getDatabaseFile function for test
-	getDatabaseFile = func() *os.File {
-		path := filepath.Join(baseDir, "sampleTableFile")
-		f, err := os.Create(path)
+	for i := 0; i <= nPageID; i++ {
+		_, err := f.Write(temp[:])
 		assert.Nil(t, err)
-		temp := [page.PageSize]byte{'g', 'a'}
-		for i := 0; i <= nPageID; i++ {
-			_, err := f.Write(temp[:])
-			assert.Nil(t, err)
-		}
-		return f
 	}
 
 	expected := page.PageID(nPageID + 1)
-	got, err := dm.ExtendPage(false)
+	got, err := dm.ExtendPage(rel, ForkNumberMain, false)
 	assert.Nil(t, err)
 	assert.Equal(t, expected, got)
 }
