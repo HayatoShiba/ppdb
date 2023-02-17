@@ -36,8 +36,8 @@ var baseDir = "base/database"
 
 // Manager manages disk
 type Manager struct {
-	// cache file descriptors when open the files
-	fds map[string]*os.File
+	// opener opens files or buffer on memory
+	opener
 }
 
 // NewManager initializes disk manager
@@ -49,25 +49,30 @@ func NewManager() (*Manager, error) {
 		}
 	}
 
-	return &Manager{
-		fds: make(map[string]*os.File),
-	}, nil
+	return &Manager{newFileOpener()}, nil
 }
 
 // ReadPage reads page from disk into page.PagePtr
 func (m *Manager) ReadPage(rel common.Relation, forkNum ForkNumber, pageID page.PageID, p page.PagePtr) error {
 	offset := page.CalculateFileOffset(pageID)
-	f, err := m.openRelationForkFile(rel, forkNum)
+	st, err := m.open(rel, forkNum)
 	if err != nil {
-		return errors.Wrap(err, "openRelationForkFile failed")
+		return errors.Wrap(err, "open failed")
 	}
 
-	n, err := f.ReadAt(p[:], offset)
+	ret, err := st.Seek(offset, os.SEEK_SET)
 	if err != nil {
-		return errors.Wrap(err, "ReadAt failed")
+		return errors.Wrap(err, "Seek failed")
+	}
+	if ret != offset {
+		return errors.Errorf("Seek failed to seek: ret %d, offset %d", ret, offset)
+	}
+	n, err := st.Read(p[:])
+	if err != nil {
+		return errors.Wrap(err, "Read failed")
 	}
 	if n != len(p) {
-		return errors.Errorf("ReadAt failed to read the whole page: %d, page length is %d", n, len(p))
+		return errors.Errorf("Read failed to read the whole page: %d, page length is %d", n, len(p))
 	}
 	return nil
 }
@@ -76,12 +81,20 @@ func (m *Manager) ReadPage(rel common.Relation, forkNum ForkNumber, pageID page.
 // see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L738
 func (m *Manager) WritePage(rel common.Relation, forkNum ForkNumber, pageID page.PageID, p page.PagePtr, skipFsync bool) error {
 	offset := page.CalculateFileOffset(pageID)
-	f, err := m.openRelationForkFile(rel, forkNum)
+	st, err := m.open(rel, forkNum)
 	if err != nil {
-		return errors.Wrap(err, "openRelationForkFile failed")
+		return errors.Wrap(err, "open failed")
 	}
 
-	n, err := f.WriteAt(p[:], offset)
+	ret, err := st.Seek(offset, os.SEEK_SET)
+	if err != nil {
+		return errors.Wrap(err, "Seek failed")
+	}
+	if ret != offset {
+		return errors.Errorf("Seek failed to seek: ret %d, offset %d", ret, offset)
+	}
+
+	n, err := st.Write(p[:])
 	if err != nil {
 		return errors.Wrap(err, "WriteAt failed")
 	}
@@ -92,7 +105,7 @@ func (m *Manager) WritePage(rel common.Relation, forkNum ForkNumber, pageID page
 	if !skipFsync {
 		// postgres seems to send request to checkpointer at first?
 		// see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L789
-		if err := f.Sync(); err != nil {
+		if err := st.Sync(); err != nil {
 			return errors.Wrap(err, "Sync failed")
 		}
 	}
@@ -125,15 +138,14 @@ func (m *Manager) ExtendPage(rel common.Relation, forkNum ForkNumber, skipFsync 
 // maybe the last page id should be cached for the performance improvement
 // see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L801
 func (m *Manager) GetNPageID(rel common.Relation, forkNum ForkNumber) (page.PageID, error) {
-	f, err := m.openRelationForkFile(rel, forkNum)
+	st, err := m.open(rel, forkNum)
 	if err != nil {
 		return page.InvalidPageID, errors.Wrap(err, "openRelationForkFile failed")
 	}
-	fi, err := f.Stat()
+	size, err := st.Size()
 	if err != nil {
 		return page.InvalidPageID, errors.Wrap(err, "f.Stat failed")
 	}
-	size := fi.Size()
 	if size == 0 {
 		return page.InvalidPageID, nil
 	}
@@ -141,21 +153,4 @@ func (m *Manager) GetNPageID(rel common.Relation, forkNum ForkNumber) (page.Page
 	// see https://github.com/postgres/postgres/blob/85d8b30724c0fd117a683cc72706f71b28463a05/src/backend/storage/smgr/md.c#L1366
 	lastPageID := (size / page.PageSize) - 1
 	return page.PageID(lastPageID), nil
-}
-
-// openRelationForkFile opens database file under base directory
-func (m *Manager) openRelationForkFile(rel common.Relation, forkNum ForkNumber) (*os.File, error) {
-	filePath := getRelationForkFilePath(rel, forkNum)
-	// when file descriptor is cached, just return it
-	fd, ok := m.fds[filePath]
-	if ok {
-		return fd, nil
-	}
-	fd, err := os.OpenFile(filePath, os.O_RDWR|os.O_CREATE, 0700)
-	if err != nil {
-		return nil, errors.Wrap(err, "os.OpenFile failed")
-	}
-	// cache file descriptor when open the file
-	m.fds[filePath] = fd
-	return fd, nil
 }

@@ -17,7 +17,7 @@ func TestNewManager(t *testing.T) {
 }
 
 func TestReadPage(t *testing.T) {
-	dm, err := TestingNewManager(t)
+	dm, err := TestingNewFileManager(t)
 	assert.Nil(t, err)
 
 	// create test file
@@ -37,7 +37,7 @@ func TestReadPage(t *testing.T) {
 }
 
 func TestWritePage(t *testing.T) {
-	dm, err := TestingNewManager(t)
+	dm, err := TestingNewFileManager(t)
 	assert.Nil(t, err)
 
 	rel := common.Relation(1)
@@ -54,7 +54,7 @@ func TestWritePage(t *testing.T) {
 }
 
 func TestExtendPage(t *testing.T) {
-	dm, err := TestingNewManager(t)
+	dm, err := TestingNewFileManager(t)
 	assert.Nil(t, err)
 
 	// create test file
