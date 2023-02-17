@@ -113,6 +113,8 @@ this is surprising.
 package buffer
 
 import (
+	"sync"
+
 	"github.com/HayatoShiba/ppdb/storage/disk"
 )
 
@@ -125,6 +127,12 @@ type Manager struct {
 	buffers [bufferNum]buffer
 	// descriptors of each shared buffers
 	descriptors [bufferNum]*descriptor
+	// freeList points to the head node(free buffer) of free list
+	// this is protected by buffer strategy lock
+	freeList BufferID
+	// strategyLock is buffer strategy lock for free list
+	// in postgres, this also protects clock-sweep algorithm, but ppdb protects only free list(probably)
+	strategyLock sync.Mutex
 }
 
 // NewManager initializes the shared buffer pool manager
@@ -133,6 +141,7 @@ func NewManager(dm *disk.Manager) *Manager {
 		dm:          dm,
 		buffers:     newBuffers(),
 		descriptors: newDescriptors(),
+		freeList:    FirstBufferID,
 	}
 }
 
