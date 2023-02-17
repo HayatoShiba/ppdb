@@ -123,12 +123,15 @@ type Manager struct {
 	dm *disk.Manager
 	// shared buffers
 	buffers [bufferNum]buffer
+	// descriptors of each shared buffers
+	descriptors [bufferNum]*descriptor
 }
 
 // NewManager initializes the shared buffer pool manager
 func NewManager(dm *disk.Manager) *Manager {
 	return &Manager{
-		dm:      dm,
-		buffers: newBuffers(),
+		dm:          dm,
+		buffers:     newBuffers(),
+		descriptors: newDescriptors(),
 	}
 }

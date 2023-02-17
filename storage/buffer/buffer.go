@@ -31,3 +31,16 @@ const (
 	// the number of buffers which is managed by shared buffer pool manager
 	bufferNum = bufferPoolSize / bufferSize
 )
+
+// BufferID is unique identifier allocated to each buffer (index of the buffers)
+// this is used as kind of pointer to the buffer
+type BufferID int32
+
+const (
+	// invalid buffer id
+	InvalidBufferID BufferID = -1
+	// first buffer id
+	FirstBufferID BufferID = 0
+	// max buffer id
+	MaxBufferID BufferID = bufferNum - 1
+)
