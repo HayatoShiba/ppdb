@@ -56,6 +56,8 @@ https://github.com/postgres/postgres/blob/a448e49bcbe40fb72e1ed85af910dd216d45ba
 */
 package buffer
 
+import "sync/atomic"
+
 // descriptor is buffer descriptor
 // see https://github.com/postgres/postgres/blob/a448e49bcbe40fb72e1ed85af910dd216d45bad8/src/include/storage/buf_internals.h#L196-L254
 type descriptor struct {
@@ -63,6 +65,8 @@ type descriptor struct {
 	tag tag
 	// next free buffer id. this is free list for buffer
 	nextFreeID BufferID
+	// state field. see the comment at the head of this file
+	state uint32
 }
 
 // newDescriptors initializes descriptors for manager
@@ -76,4 +80,188 @@ func newDescriptors() [bufferNum]*descriptor {
 	}
 	descs[bufferNum-1].nextFreeID = freeListInvalidID
 	return descs
+}
+
+// for flags in state field
+// see https://github.com/postgres/postgres/blob/a448e49bcbe40fb72e1ed85af910dd216d45bad8/src/include/storage/buf_internals.h#L58-L67
+const (
+	// bmLocked indicates buffer header is locked
+	bmLocked uint32 = (1 << 9)
+	// bmDirty indicates buffer is dirty
+	bmDirty uint32 = (1 << 8)
+	// bmIOInProgress indicates the io is in progress for the buffer
+	// this is kind of lock for disk io
+	// see https://github.com/postgres/postgres/blob/d87251048a0f293ad20cc1fe26ce9f542de105e6/src/backend/storage/buffer/README#L148-L152
+	bmIOInProgress uint32 = (1 << 7)
+
+	// other bits will be defined when necessary
+)
+
+// acquireHeaderLock acquires buffer header spin lock
+// to change state/tag field in descriptor
+// see https://github.com/postgres/postgres/blob/d9d873bac67047cfacc9f5ef96ee488f2cb0f1c3/src/backend/storage/buffer/bufmgr.c#L4755
+func (desc *descriptor) acquireHeaderLock() {
+	for {
+		oldState := atomic.LoadUint32(&desc.state)
+		if oldState&bmLocked != 0 {
+			// if header lock is held by other goroutines, just continue
+			// in postgres, delay spin lock here
+			// see https://github.com/postgres/postgres/blob/d9d873bac67047cfacc9f5ef96ee488f2cb0f1c3/src/backend/storage/buffer/bufmgr.c#L4769
+			// maybe runtime.Gosched() should be called here
+			// re-scheduling of goroutine may be controversial because the lock is expected to be released soon
+			continue
+		}
+		newState := oldState | bmLocked
+		if atomic.CompareAndSwapUint32(&desc.state, oldState, newState) {
+			// if swapped, return
+			break
+		}
+	}
+}
+
+// releaseHeaderLock releases buffer header spin lock
+// see https://github.com/postgres/postgres/blob/a448e49bcbe40fb72e1ed85af910dd216d45bad8/src/include/storage/buf_internals.h#L359
+func (desc *descriptor) releaseHeaderLock() {
+	// postgres executes pg_write_barrier() in UnlockBufHdr()
+	// probably, this is for confirming completion of all other operations which update state/tag
+	// because it could be critical if, after one goroutine acquires header lock, the update of state/tag field by other goroutine is completed
+	// for more details about memory barrier, see https://github.com/postgres/postgres/blob/2ded19fa3a4dafbae80245710fa371d5163bdad4/src/backend/storage/lmgr/README.barrier#L1
+	// in golang, I assume atomic.LoadUint32 works as kind of memory barrier (although I'm not sure...)
+	state := atomic.LoadUint32(&desc.state)
+	// releaseHeaderLock() is based on the fact that the caller has held header lock,
+	// so does not check old value of state field here.
+	atomic.SwapUint32(&desc.state, state & ^bmLocked)
+}
+
+// waitHeaderLockReleased waits for buffer header spin lock to be released
+// this function is expected to be called when using CAS loops
+// see https://github.com/postgres/postgres/blob/d9d873bac67047cfacc9f5ef96ee488f2cb0f1c3/src/backend/storage/buffer/bufmgr.c#L4784
+func (desc *descriptor) waitHeaderLockReleased() uint32 {
+	var state uint32
+	for {
+		state = atomic.LoadUint32(&desc.state)
+		// if lock is not held by other goroutine, return
+		if state&bmLocked == 0 {
+			break
+		}
+		// maybe runtime.Gosched() should be called here
+		// re-scheduling of goroutine may be controversial because the lock is expected to be released soon
+	}
+	return state
+}
+
+// setDirty sets the dirty bit with cas operation
+// this can be called without holding header lock
+// see https://github.com/postgres/postgres/blob/d9d873bac67047cfacc9f5ef96ee488f2cb0f1c3/src/backend/storage/buffer/bufmgr.c#L1583
+func (desc *descriptor) setDirty() {
+	// if the buffer is already dirty, just return
+	if desc.isDirty() {
+		return
+	}
+	for {
+		oldState := atomic.LoadUint32(&desc.state)
+		// wait buffer header unlocked if it is locked
+		if oldState&bmLocked != 0 {
+			// wait header lock to be released
+			// because cas operation must not be executed when header lock held by other goroutine
+			// see the comment at the head of /storage/buffer/manager.go
+			// then update oldState with the state when header lock is released
+			oldState = desc.waitHeaderLockReleased()
+		}
+		newState := oldState | bmDirty
+		if atomic.CompareAndSwapUint32(&desc.state, oldState, newState) {
+			// if swapped, return
+			break
+		}
+	}
+}
+
+// clearDirty clears the dirty bit
+func (desc *descriptor) clearDirty() {
+	// if the buffer is not dirty, just return
+	if !desc.isDirty() {
+		return
+	}
+	for {
+		oldState := atomic.LoadUint32(&desc.state)
+		// wait buffer header unlocked if it is locked
+		if oldState&bmLocked != 0 {
+			// wait header lock to be released
+			// because cas operation must not be executed when header lock held by other goroutine
+			// see the comment at the head of /storage/buffer/manager.go
+			// then update oldState with the state when header lock is released
+			oldState = desc.waitHeaderLockReleased()
+		}
+		newState := oldState & ^bmDirty
+		if atomic.CompareAndSwapUint32(&desc.state, oldState, newState) {
+			// if swapped, return
+			break
+		}
+	}
+}
+
+// isDirty checks whether the descriptor is dirty
+func (desc *descriptor) isDirty() bool {
+	state := atomic.LoadUint32(&desc.state)
+	if state&bmDirty != 0 {
+		return true
+	}
+	return false
+}
+
+// setIOInProgress sets buffer io in progress
+func (desc *descriptor) setIOInProgress() {
+	for {
+		oldState := atomic.LoadUint32(&desc.state)
+		// wait buffer header unlocked if it is locked
+		if oldState&bmLocked != 0 {
+			// wait header lock to be released
+			// because cas operation must not be executed when header lock held by other goroutine
+			// see the comment at the head of /storage/buffer/manager.go
+			// then update oldState with the state when header lock is released
+			oldState = desc.waitHeaderLockReleased()
+		}
+		// if the buffer io is in progress by other goroutine, it has to be waited
+		if desc.isIOInProgress() {
+			// is this released soon in most cases?
+			continue
+		}
+		newState := oldState | bmIOInProgress
+		if atomic.CompareAndSwapUint32(&desc.state, oldState, newState) {
+			// if swapped, return
+			break
+		}
+	}
+}
+
+// clearIOInProgress clears buffer io in progress
+func (desc *descriptor) clearIOInProgress() {
+	if !desc.isIOInProgress() {
+		return
+	}
+	for {
+		oldState := atomic.LoadUint32(&desc.state)
+		// wait buffer header unlocked if it is locked
+		if oldState&bmLocked != 0 {
+			// wait header lock to be released
+			// because cas operation must not be executed when header lock held by other goroutine
+			// see the comment at the head of /storage/buffer/manager.go
+			// then update oldState with the state when header lock is released
+			oldState = desc.waitHeaderLockReleased()
+		}
+		newState := oldState & ^bmIOInProgress
+		if atomic.CompareAndSwapUint32(&desc.state, oldState, newState) {
+			// if swapped, return
+			break
+		}
+	}
+}
+
+// isIOInProgress checks whether the buffer io is in progress
+func (desc *descriptor) isIOInProgress() bool {
+	state := atomic.LoadUint32(&desc.state)
+	if state&bmIOInProgress != 0 {
+		return true
+	}
+	return false
 }
