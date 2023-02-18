@@ -18,3 +18,12 @@ func TestingNewBufferManager(t *testing.T) (*bufferManager, error) {
 	}
 	return newBufferManager(dm), nil
 }
+
+// TestingNewManager initializes manager
+func TestingNewManager(t *testing.T) (*Manager, error) {
+	bm, err := TestingNewBufferManager(t)
+	if err != nil {
+		return nil, errors.Wrap(err, "TestingNewBufferManager failed")
+	}
+	return &Manager{bm}, nil
+}
