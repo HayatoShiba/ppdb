@@ -56,7 +56,10 @@ https://github.com/postgres/postgres/blob/8242752f9c104030085cb167e6e1dd5bed4813
 package snapshot
 
 import (
+	"sync"
+
 	"github.com/HayatoShiba/ppdb/transaction/clog"
+	"github.com/HayatoShiba/ppdb/transaction/txid"
 )
 
 // Manager is snapshot manager
@@ -64,9 +67,82 @@ type Manager struct {
 	// clog manager is included
 	// because, for checking visibility of the tuple, the transaction status has to be checked
 	cm clog.Manager
+
+	// this is called ProcArrayLock in postgres.
+	// in ppdb, this lock is used for inProgressTxIDs and latestCompletedTxID
+	mu sync.RWMutex
+
+	// in progress transaction ids. this is used for snapshot isolation
+	// in ppdb, this is implemented with hash simply.
+	// https://github.com/postgres/postgres/blob/a4adc31f6902f6fc29d74868e8969412fc590da9/src/include/storage/proc.h#L370-L371
+	inProgressTxIDs map[txid.TxID]struct{}
+
+	// latest completed txid. this is used for snapshot isolation
+	// this is used as xmax in snapshot.
+	latestCompletedTxID txid.TxID
 }
 
 // NewManager initializes snapshot manager
 func NewManager(cm clog.Manager) *Manager {
-	return &Manager{cm: cm}
+	return &Manager{
+		cm:                  cm,
+		inProgressTxIDs:     make(map[txid.TxID]struct{}),
+		latestCompletedTxID: txid.InvalidTxID,
+	}
+}
+
+// TakeSnapshot takes snapshot for transaction isolation
+func (m *Manager) TakeSnapshot() *Snapshot {
+	xmax, xmin := m.getSnapshotInfo()
+	return &Snapshot{
+		xmin: xmin,
+		xmax: xmax,
+		xip:  m.inProgressTxIDs,
+	}
+}
+
+// GetSnapshotInfo returns xmax and xmin
+func (m *Manager) getSnapshotInfo() (xmin, xmax txid.TxID) {
+	// shared lock has to be held when latestCompletedTxID and inProgressTxIDs are used.
+	// deleting from inProgressTxIDs and inserting latestCompletedTxID (if necessary) must be atomic for consistency.
+	// see https://github.com/postgres/postgres/blob/97c61f70d1b97bdfd20dcb1f2b1be42862ec88c2/src/backend/access/transam/README#L246-L257
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// latestCompletedTxID is initialized with txid.InvalidTxID
+	// it means that all transactions are invisible
+	xmax = m.latestCompletedTxID
+
+	// xmin is calculated from in-progress xids
+	// current txid is expected to be in xip if the txid is in progress
+	// so ppdb assumes that, at least, one xid exists in xip slice when take snapshot
+	xmin = txid.InvalidTxID
+	for id, _ := range m.inProgressTxIDs {
+		if xmin == txid.InvalidTxID {
+			xmin = id
+		}
+		if xmin.IsFollows(id) {
+			xmin = id
+		}
+	}
+	return
+}
+
+// AddInProgressTxID adds the txid to inProgressTxIDs
+// this is expected to be called when transaction id is newly allocated.
+// the allocated ids has to be stored to inProgressTxIDs.
+// the caller has to hold XidGenLock.
+func (m *Manager) AddInProgressTxID(txID txid.TxID) {
+	m.inProgressTxIDs[txID] = struct{}{}
+}
+
+// CompleteTxID removes the txid from in progress txids.
+// if the txid is latest completed id, then update the field.
+func (m *Manager) CompleteTxID(txID txid.TxID) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.inProgressTxIDs, txID)
+	if txID.IsFollows(m.latestCompletedTxID) {
+		m.latestCompletedTxID = txID
+	}
 }
