@@ -130,6 +130,9 @@ type Manager struct {
 	// freeList points to the head node(free buffer) of free list
 	// this is protected by buffer strategy lock
 	freeList BufferID
+	// nextVictimBuffer is the next victim buffer which clock-sweep inspects
+	// if the buffer is not pinned and used at that time, the buffer is confirmed to be next victim
+	nextVictimBuffer BufferID
 	// strategyLock is buffer strategy lock for free list
 	// in postgres, this also protects clock-sweep algorithm, but ppdb protects only free list(probably)
 	strategyLock sync.Mutex
@@ -138,10 +141,11 @@ type Manager struct {
 // NewManager initializes the shared buffer pool manager
 func NewManager(dm *disk.Manager) *Manager {
 	return &Manager{
-		dm:          dm,
-		buffers:     newBuffers(),
-		descriptors: newDescriptors(),
-		freeList:    FirstBufferID,
+		dm:               dm,
+		buffers:          newBuffers(),
+		descriptors:      newDescriptors(),
+		freeList:         FirstBufferID,
+		nextVictimBuffer: FirstBufferID,
 	}
 }
 
