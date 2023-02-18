@@ -58,8 +58,10 @@ package snapshot
 import (
 	"sync"
 
+	"github.com/HayatoShiba/ppdb/storage/tuple"
 	"github.com/HayatoShiba/ppdb/transaction/clog"
 	"github.com/HayatoShiba/ppdb/transaction/txid"
+	"github.com/pkg/errors"
 )
 
 // Manager is snapshot manager
@@ -145,4 +147,71 @@ func (m *Manager) CompleteTxID(txID txid.TxID) {
 	if txID.IsFollows(m.latestCompletedTxID) {
 		m.latestCompletedTxID = txID
 	}
+}
+
+// isTupleVisibleFromSnapshot determines the visibility of the tuple from the snapshot
+// This is expected to be called when get/update tuple for visibility check
+// https://github.com/postgres/postgres/blob/c3652cd84ac8aa60dd09a9743d4db6f20e985a2f/src/backend/access/heap/heapam_visibility.c#L965
+func (m *Manager) IsTupleVisibleFromSnapshot(tuple tuple.TupleByte, snap *Snapshot) (bool, error) {
+	/*
+		the logic to check visibility of the tuple is described below
+		- check the transaction status of tuple's xmin from this snapshot
+			- if tuple's xmin < snapshot's xmin, then xmin has been completed(committed/aborted)
+			  - if xmin has been committed, then xmax has to be checked for visibility check
+			  - if xmin has been aborted, then invisible to this snapshot
+			- if tuple's xmin > snapshot's xmax, then invisible to this snapshot
+			- if snasphot's xmin < tuple's xmin < snapshot's xmax, then check snasphot's xip
+			- if tuple's xmin exists in xip, then invisible to this snapshot
+			- if tuple's xmin doesn't exist in xip, then xmin has been completed(committed/aborted)
+				- if xmin has been committed, then xmax has to be checked for visibility check
+				- if xmin has been aborted, then invisible to this snapshot
+		- if xmin has been committed from this snapshot, xmax has to be checked
+			- if tuple's xmax is invalid, then the tuple is not updated/delete so VISIBLE TO THIS SNAPSHOT
+			- if tuple's xmax < snapshot's xmin, then xmax has been completed(committed/aborted)
+			  - if xmax has been committed, then INVISIBLE to this snapshot
+			  - if xmax has been aborted, then VISIBLE to this snapshot
+			- if tuple's xmax > snapshot's xmax, then VISIBLE to this snapshot
+			- if snasphot's xmin < tuple's xmax < snapshot's xmax, then check snasphot's xip
+			- if tuple's xmax exists in xip, then VISIBLE to this snapshot
+			- if tuple's xmax doesn't exist in xip, then xmax has been completed(committed/aborted)
+				- if xmax has been committed, then invisible to this snapshot
+				- if xmax has been aborted, then VISIBLE to this snapshot
+
+		notice: tuple in postgres has transaction status hint bits in t_infomask, but ppdb does not implement it
+	*/
+
+	// at first, check whether tuple's xmin is in progress
+	if snap.isInProgress(tuple.Xmin()) {
+		// if xmin is in progress, then the tuple is invisible
+		return false, nil
+	}
+	// we know xmin has been completed here.
+	// next, then transaction status has to be checked.
+	aborted, err := m.cm.IsTxAborted(tuple.Xmin())
+	if err != nil {
+		return false, errors.Wrap(err, "m.cm.IsTxAborted failed")
+	}
+	if aborted {
+		// if xmin's transaction has been aborted, the tuple is invisible
+		return false, nil
+	}
+
+	// here, we know the xmin's transaction has been committed(not aborted),
+	// postgres set transaction status hint bits for (probably) performance improvement of
+	// checking status next time
+
+	// so we know xmin has been committed here, check xmax in the same way
+	// if xmax is in progress, then the tuple is VISIBLE. because the tuple is not updated/deleted
+	if snap.isInProgress(tuple.Xmax()) {
+		return true, nil
+	}
+	aborted, err = m.cm.IsTxAborted(tuple.Xmax())
+	if err != nil {
+		return false, errors.Wrap(err, "m.cm.IsTxAborted failed")
+	}
+	if aborted {
+		return true, nil
+	}
+	// here, xmax has been committed, so the tuple is invisible
+	return false, nil
 }
