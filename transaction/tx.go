@@ -6,13 +6,15 @@ import "github.com/HayatoShiba/ppdb/transaction/txid"
 type Tx struct {
 	id    txid.TxID
 	state State
+	level isolationLevel
 }
 
 // NewTransaction initializes transaction
-func NewTransaction(id txid.TxID) *Tx {
+func NewTransaction(id txid.TxID, level isolationLevel) *Tx {
 	return &Tx{
 		id:    id,
 		state: StateInProgress,
+		level: level,
 	}
 }
 
@@ -24,6 +26,11 @@ func (tx *Tx) ID() txid.TxID {
 // State returns transaction state
 func (tx *Tx) State() State {
 	return tx.state
+}
+
+// IsolationLevel returns transaction isolation level
+func (tx *Tx) IsolationLevel() isolationLevel {
+	return tx.level
 }
 
 // SetState sets transaction state

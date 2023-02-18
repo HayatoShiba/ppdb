@@ -41,6 +41,9 @@ the tuple (probably so that clog doesn't have to be fetched afterwards. probably
 ---
 Others
 
+the explanation of snapshot type
+https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/include/utils/snapshot.h#L23-L119
+
 the visibility-related function is defined at heapam_visibility.c in postgres
 https://github.com/postgres/postgres/blob/c3652cd84ac8aa60dd09a9743d4db6f20e985a2f/src/backend/access/heap/heapam_visibility.c#L3
 
@@ -101,6 +104,7 @@ func NewManager(cm clog.Manager) *Manager {
 }
 
 // TakeSnapshot takes snapshot for transaction isolation
+// see https://github.com/postgres/postgres/blob/8b5262fa0efdd515a05e533c2a1198e7b666f7d8/src/backend/utils/time/snapmgr.c#L241-L318
 func (m *Manager) TakeSnapshot() *Snapshot {
 	xmax, xmin := m.getSnapshotInfo()
 	return &Snapshot{
@@ -163,6 +167,12 @@ func (m *Manager) CompleteTxID(txID txid.TxID) {
 // inProgressTxIDs, but not inProgressSnapshots. this case is considered when vacuum.
 func (m *Manager) AddInProgressTxSnapshot(txID txid.TxID, snap Snapshot) {
 	m.inProgressSnapshots[txID] = snap
+}
+
+// GetInProgressTxSnapshot returns in progress tx snapshot
+func (m *Manager) GetInProgressTxSnapshot(txID txid.TxID) (Snapshot, bool) {
+	snap, ok := m.inProgressSnapshots[txID]
+	return snap, ok
 }
 
 // CompleteTxSnapshot removes the snapshot from in progress snapshots.
@@ -235,4 +245,88 @@ func (m *Manager) IsTupleVisibleFromSnapshot(tuple tuple.TupleByte, snap *Snapsh
 	}
 	// here, xmax has been committed, so the tuple is invisible
 	return false, nil
+}
+
+// IsTupleVacuumable checks whether the tuple can be vacuumed or not.
+// to determine the visibility of tuple, this function checks:
+// - the commit status of xmin,xmax of the tuple
+// - the visibility of the tuple from oldest snapshot
+// https://github.com/postgres/postgres/blob/c3652cd84ac8aa60dd09a9743d4db6f20e985a2f/src/backend/access/heap/heapam_visibility.c#L1161
+func (m *Manager) IsTupleVacuumable(tuple tuple.TupleByte) (bool, error) {
+	status, deleted, err := m.GetTupleVisibilityStatus(tuple)
+	if err != nil {
+		return false, errors.Wrap(err, "m.GetTupleVisibilityStatus failed")
+	}
+	// if the tuple has been deleted, we have to check the tuple is invisible from oldest snapshot
+	if status == TupleVisibilityStatusRecentlyDead {
+		// https://github.com/postgres/postgres/blob/8242752f9c104030085cb167e6e1dd5bed481360/src/backend/storage/ipc/procarray.c#L2013
+		// TODO: this assignment and loop must be refactored. this is messy............
+		oldestXmin := txid.InvalidTxID
+		for id, _ := range m.inProgressTxIDs {
+			if oldestXmin == txid.InvalidTxID {
+				oldestXmin = id
+			}
+			for _, snapshot := range m.inProgressSnapshots {
+				if oldestXmin.IsFollows(snapshot.xmin) {
+					oldestXmin = snapshot.xmin
+				}
+			}
+		}
+		if oldestXmin.IsFollows(deleted) {
+			// this can be vacuumed
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// TupleVisibilityStatus is the status for determining the visibility of tuple
+type TupleVisibilityStatus uint
+
+const (
+	// TupleVisibilityStatusInvalid indicates the tuple is invalid
+	TupleVisibilityStatusInvalid TupleVisibilityStatus = iota
+	// TupleVisibilityStatusRecentlyDead indicates the tuple has recently been deleted.
+	// fot vacuum, the visibility (from oldest snapshot) must also be checked.
+	TupleVisibilityStatusRecentlyDead
+	// TupleVisibilityStatusDead indicates the tuple is dead and invisible to all transactions
+	TupleVisibilityStatusDead
+	// TupleVisibilityStatuseAlive indicates the tuole is alive and cannot be vacuumed.
+	TupleVisibilityStatuseAlive
+)
+
+// IsTupleVacuumable determines whether the tuple can be vacuumed or not
+// for the details of the logic, see comment at IsTupleVisibleFromSnapshot().
+// it returns transaction id which deletes(updates) the tuple if the tuple is deleted
+// when the tuple is not actually inserted because of abort, invalid transaction id is also returned.
+// TODO: this is not actually related with snapshot so this function may be defined elsewhere
+// https://github.com/postgres/postgres/blob/c3652cd84ac8aa60dd09a9743d4db6f20e985a2f/src/backend/access/heap/heapam_visibility.c#L1195
+func (m *Manager) GetTupleVisibilityStatus(tuple tuple.TupleByte) (TupleVisibilityStatus, txid.TxID, error) {
+	// deleted is transaction id which deletes(updates) the tuple (if the tuple has been deleted(updated))
+	deleted := txid.InvalidTxID
+	// we know xmin has been completed here.
+	// next, then transaction status has to be checked.
+	aborted, err := m.cm.IsTxAborted(tuple.Xmin())
+	if err != nil {
+		return TupleVisibilityStatusInvalid, deleted, errors.Wrap(err, "m.cm.IsTxAborted failed")
+	}
+	if aborted {
+		// if xmin's transaction has been aborted, the tuple is invisible
+		return TupleVisibilityStatusRecentlyDead, deleted, nil
+	}
+
+	// here, we know the xmin's transaction has been committed(not aborted),
+	// postgres set transaction status hint bits for (probably) performance improvement of
+	// checking status next time
+
+	aborted, err = m.cm.IsTxAborted(tuple.Xmax())
+	if err != nil {
+		return TupleVisibilityStatusInvalid, deleted, errors.Wrap(err, "m.cm.IsTxAborted failed")
+	}
+	if aborted {
+		return TupleVisibilityStatuseAlive, deleted, nil
+	}
+	// here, xmax has been committed, so the tuple is invisible
+	deleted = tuple.Xmax()
+	return TupleVisibilityStatusRecentlyDead, deleted, nil
 }

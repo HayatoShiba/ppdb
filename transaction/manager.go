@@ -62,12 +62,26 @@ func (m *Manager) Begin() *Tx {
 	// after insertion of xip, lock can be released
 	m.Tm.ReleaseLock()
 
-	// take snapshot for the transaction
-	snap := m.Sm.TakeSnapshot()
-	// store txid and snapshot for vacuum
-	m.Sm.AddInProgressTxSnapshot(txID, *snap)
+	// TODO: this has to be executed in each statement in transaction, not in BEGIN.
+	// TODO: enable to pass isolation level to Begin(). currently READ COMMITTED is fixed.
+	level := defaultIsolationlevel
+	if isIsolationUsesSameSnapshot(level) {
+		_, ok := m.Sm.GetInProgressTxSnapshot(txID)
+		if !ok {
+			// this is the first snapshot after the transaction starts
+			// take snapshot for the transaction
+			snap := m.Sm.TakeSnapshot()
+			// store txid and snapshot for vacuum
+			m.Sm.AddInProgressTxSnapshot(txID, *snap)
+		}
+	} else {
+		// take snapshot for the transaction
+		snap := m.Sm.TakeSnapshot()
+		// store txid and snapshot for vacuum
+		m.Sm.AddInProgressTxSnapshot(txID, *snap)
+	}
 
-	return NewTransaction(txID)
+	return NewTransaction(txID, level)
 }
 
 // Commit commits transaction
