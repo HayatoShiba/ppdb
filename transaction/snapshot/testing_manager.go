@@ -1,16 +1,13 @@
 package snapshot
 
 import (
-	"testing"
-
 	"github.com/HayatoShiba/ppdb/transaction/clog"
 	"github.com/HayatoShiba/ppdb/transaction/txid"
 	"github.com/pkg/errors"
 )
 
-func TestingNewManager(t *testing.T, xip []txid.TxID, lcTxID txid.TxID) (*Manager, error) {
-	// TODO: should use mock probably
-	cm, err := clog.TestingNewManager(t)
+func TestingNewManager(xip []txid.TxID, lcTxID txid.TxID) (*Manager, error) {
+	cm, err := clog.TestingNewMockManager()
 	if err != nil {
 		return nil, errors.Wrap(err, "clog.NewManager failed")
 	}
