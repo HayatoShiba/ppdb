@@ -35,6 +35,8 @@ const (
 	InvalidPageID PageID = math.MaxUint32
 	// max page id
 	MaxPageID PageID = math.MaxUint32 - 1
+	// special page id for buffer manager
+	NewPageID PageID = InvalidPageID
 )
 
 // PagePtr is pointer to page

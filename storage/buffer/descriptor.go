@@ -59,6 +59,8 @@ package buffer
 import (
 	"sync"
 	"sync/atomic"
+
+	"github.com/pkg/errors"
 )
 
 // descriptor is buffer descriptor
@@ -313,6 +315,31 @@ func (desc *descriptor) pin() {
 			break
 		}
 	}
+}
+
+// pinWithHeaderLock pins the buffer and releases header lock
+// the caller is expected to hold header lock
+// see https://github.com/postgres/postgres/blob/d9d873bac67047cfacc9f5ef96ee488f2cb0f1c3/src/backend/storage/buffer/bufmgr.c#L1807
+func (desc *descriptor) pinWithHeaderLock() error {
+	// kind of optimistic locking with cas operation
+	for {
+		oldState := atomic.LoadUint32(&desc.state)
+		if oldState&bmLocked == 0 {
+			// if header lock is not held, then return error
+			return errors.Errorf("header lock is not held %032b", oldState)
+		}
+		// release header lock
+		unlockedState := oldState & ^bmLocked
+		// increment ref count and usage count when pin
+		newState := unlockedState + refCountOne
+		if desc.usageCount() < maxUsageCount {
+			newState = newState + usageCountOne
+		}
+		if ok := atomic.CompareAndSwapUint32(&desc.state, oldState, newState); ok {
+			break
+		}
+	}
+	return nil
 }
 
 // unpin decrements reference count
