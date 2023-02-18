@@ -31,16 +31,21 @@ continue the execution (probably). (TODO: see heap update function for understan
 */
 package transaction
 
-import "github.com/HayatoShiba/ppdb/transaction/txid"
+import (
+	"github.com/HayatoShiba/ppdb/transaction/clog"
+	"github.com/HayatoShiba/ppdb/transaction/txid"
+)
 
 type Manager struct {
 	// if it isn't necessary to be exported, fix this later.
 	Tm *txid.Manager
+	Cm clog.Manager
 }
 
-func NewManager(tm *txid.Manager) *Manager {
+func NewManager(tm *txid.Manager, cm clog.Manager) *Manager {
 	return &Manager{
 		Tm: tm,
+		Cm: cm,
 	}
 }
 
@@ -53,10 +58,14 @@ func (m *Manager) Begin() *Tx {
 
 // Commit commits transaction
 func (m *Manager) Commit(tx Tx) {
+	// store transaction state to clog
+	m.Cm.SetStateCommitted(tx.ID())
 	tx.SetState(StateCommitted)
 }
 
 // Abort aborts transaction
 func (m *Manager) Abort(tx Tx) {
+	// store transaction state to clog
+	m.Cm.SetStateAborted(tx.ID())
 	tx.SetState(StateAborted)
 }
