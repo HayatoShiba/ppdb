@@ -86,6 +86,11 @@ func (bs *bufferStorage) Read(p []byte) (n int, err error) {
 
 // Write writes p into buffer at current position
 func (bs *bufferStorage) Write(p []byte) (n int, err error) {
+	// grow slice if seek makes offset ahead of capacity of the slice
+	if len(bs.buf) < bs.off {
+		t := make([]byte, bs.off-len(bs.buf))
+		bs.buf = append(bs.buf, t[:]...)
+	}
 	// if the buffer is EOF, then extend the byte slice with page size
 	if len(bs.buf) == bs.off {
 		pg := page.NewPagePtr()
