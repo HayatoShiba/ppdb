@@ -67,3 +67,10 @@ func (tm *Manager) AllocateNewTxID() TxID {
 	tm.Unlock()
 	return txID
 }
+
+// ReadNewTxID returns new transaction id allocated
+// this does not advance the transaction id actually
+// this is expected to be called when vacuum calculates the threshold to freeze.
+func (tm *Manager) ReadNewTxID() TxID {
+	return tm.nextTxID
+}
