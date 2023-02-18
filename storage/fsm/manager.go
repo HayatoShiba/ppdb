@@ -62,13 +62,19 @@ import (
 	"github.com/pkg/errors"
 )
 
-type Manager struct {
+// Manager is interface for fsm manager
+type Manager interface {
+	SearchPageIDWithFreeSpaceSize(rel common.Relation, size int) (page.PageID, error)
+	UpdateFSM(rel common.Relation, pageID page.PageID, size int) error
+}
+
+type ManagerImpl struct {
 	bm *buffer.Manager
 }
 
 // NewManager initializes manager
-func NewManager(bm *buffer.Manager) *Manager {
-	return &Manager{
+func NewManager(bm *buffer.Manager) Manager {
+	return &ManagerImpl{
 		bm: bm,
 	}
 }
@@ -87,7 +93,7 @@ see for more details of the optimization:
 https://github.com/postgres/postgres/blob/7db0cde6b58eef2ba0c70437324cbc7622230320/src/backend/storage/freespace/README#L80-L87
 see also https://github.com/postgres/postgres/blob/bfcf1b34805f70df48eedeec237230d0cc1154a6/src/backend/storage/freespace/freespace.c#L702
 */
-func (m *Manager) SearchPageIDWithFreeSpaceSize(rel common.Relation, size int) (page.PageID, error) {
+func (m *ManagerImpl) SearchPageIDWithFreeSpaceSize(rel common.Relation, size int) (page.PageID, error) {
 	wanted, ok := convertToFreeSpaceSize(size)
 	if !ok {
 		return page.InvalidPageID, errors.Errorf("the size passed is unexpected: %d", size)
@@ -202,7 +208,7 @@ func (m *Manager) SearchPageIDWithFreeSpaceSize(rel common.Relation, size int) (
 // the location(fsm slot) can be calculated from relation's page id.
 // at first update the free space size of relation's page id, then bubble up the change up to root node.
 // see https://github.com/postgres/postgres/blob/bfcf1b34805f70df48eedeec237230d0cc1154a6/src/backend/storage/freespace/freespace.c#L800
-func (m *Manager) UpdateFSM(rel common.Relation, pageID page.PageID, size int) error {
+func (m *ManagerImpl) UpdateFSM(rel common.Relation, pageID page.PageID, size int) error {
 	// at first, fetch the fsm page which stores the free space size of the relation's page
 	// find the address and slot from relation's page id
 	addr, slot := getAddressFromRelationPageID(relationPageID(pageID))
