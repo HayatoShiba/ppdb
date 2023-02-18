@@ -113,6 +113,7 @@ this is surprising.
 package buffer
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/HayatoShiba/ppdb/storage/disk"
@@ -153,6 +154,26 @@ func NewManager(dm *disk.Manager) *Manager {
 		freeList:         FirstBufferID,
 		nextVictimBuffer: FirstBufferID,
 	}
+}
+
+// allocateBuffer returns victim buffer id where the data will be read into.
+// IMPORTANT: the header lock of the buffer is held
+func (m *Manager) allocateBuffer() (BufferID, error) {
+	// at first, search free list.
+	// if free buffer exists on the list, remove it from free list and return it
+	if bufferID := m.allocateFromFreeList(); bufferID != InvalidBufferID {
+		// acquire header lock for the buffer
+		// although this buffer has been free so header lock doesn't have to be acquired (probably)
+		desc := m.descriptors[bufferID]
+		desc.acquireHeaderLock()
+		return bufferID, nil
+	}
+	// when there is no buffer in free list, use cache replacement policy(clock-sweep)
+	if bufferID := m.allocateWithClockSweep(); bufferID != InvalidBufferID {
+		// allocateWithClockSweep acquires header lock for the buffer
+		return bufferID, nil
+	}
+	return InvalidBufferID, errors.New("all buffers cannot be evicted")
 }
 
 // AcquireContentLock acquires buffer content lock
