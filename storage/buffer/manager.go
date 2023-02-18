@@ -123,6 +123,9 @@ import (
 type Manager struct {
 	// disk manager
 	dm *disk.Manager
+	// table is mapping from buffer tag to buffer id(index of buffers/descriptors)
+	// so to read buffer, prepare tag and use the tag to get buffer id through buffer table
+	table bufferTable
 	// shared buffers
 	buffers [bufferNum]buffer
 	// descriptors of each shared buffers
@@ -141,7 +144,10 @@ type Manager struct {
 // NewManager initializes the shared buffer pool manager
 func NewManager(dm *disk.Manager) *Manager {
 	return &Manager{
-		dm:               dm,
+		dm: dm,
+		table: bufferTable{
+			table: make(map[tag]BufferID),
+		},
 		buffers:          newBuffers(),
 		descriptors:      newDescriptors(),
 		freeList:         FirstBufferID,
