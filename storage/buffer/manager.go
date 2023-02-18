@@ -340,6 +340,16 @@ func (m *Manager) allocateBuffer() (BufferID, error) {
 	return InvalidBufferID, errors.New("all buffers cannot be evicted")
 }
 
+// MarkDirty turns on the dirty bit of the buffer
+// the caller has to hold pin and exclusive content lock
+// for example, heap access method has to call this function after inserting some tuples.
+// so turning on the buffer dirty bit has to be exported.
+// https://github.com/postgres/postgres/blob/d9d873bac67047cfacc9f5ef96ee488f2cb0f1c3/src/backend/storage/buffer/bufmgr.c#L1583
+func (m *Manager) MarkDirty(bufID BufferID) {
+	desc := m.descriptors[bufID]
+	desc.setDirty()
+}
+
 // AcquireContentLock acquires buffer content lock
 // content lock has to be held when read/write page(buffer content)
 // TODO: maybe `descriptor` type should be exported

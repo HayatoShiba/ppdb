@@ -171,3 +171,15 @@ func TestAllocateBuffer(t *testing.T) {
 		})
 	}
 }
+
+func TestMarkDirty(t *testing.T) {
+	m, err := TestingNewManager()
+	assert.Nil(t, err)
+
+	bufID, err := m.ReadBuffer(common.Relation(1), disk.ForkNumberMain, page.NewPageID)
+	assert.Nil(t, err)
+
+	assert.False(t, m.descriptors[bufID].isDirty())
+	m.MarkDirty(bufID)
+	assert.True(t, m.descriptors[bufID].isDirty())
+}
