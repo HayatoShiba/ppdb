@@ -37,6 +37,9 @@ type bufferManager struct {
 	buffers     [bufferNum]buffer
 	descriptors [bufferNum]*bufferDescriptor
 
+	// lru is information used for lru
+	lru lruInfo
+
 	// lock for the whole buffer (XactSLRULock called in postgres, but I may misunderstand the lock)
 	// this looks inefficient
 	// note: XactSLRULock is the same lock as SlruShared.ControlLock.
@@ -51,6 +54,9 @@ func newBufferManager(dm *diskManager) *bufferManager {
 		dm:          dm,
 		buffers:     newBuffers(),
 		descriptors: newBufferDescriptors(),
+		lru: lruInfo{
+			currLRUCount: firstLRUCount,
+		},
 	}
 }
 
@@ -121,12 +127,13 @@ func (bm *bufferManager) readPage(pageID page.PageID, exclusive bool) (bufferID,
 	// see https://github.com/postgres/postgres/blob/5ca3645cb3fb4b8b359ea560f6a1a230ea59c8bc/src/backend/access/transam/slru.c#L501-L520
 	// search the page in buffer
 	if bufID := bm.searchPage(pageID); bufID != invalidBufferID {
-		// TODO: update lru count
+		// update lru count of the buffer
+		bm.updateLRUcount(bufID)
 		return bufID, nil
 	}
 
-	// TODO: select victim buffer id using lru count
-	victimBufferID := 1
+	// select victim buffer id using lru count
+	victimBufferID := bm.selectVictimBuffer()
 	victimID := bufferID(victimBufferID)
 	// if dirty, should flush it to disk
 	if bm.descriptors[victimID].dirty {
@@ -157,7 +164,8 @@ func (bm *bufferManager) readPage(pageID page.PageID, exclusive bool) (bufferID,
 	bm.descriptors[victimID].Unlock()
 	bm.descriptors[victimID].status = bufferStatusUsed
 	bm.descriptors[victimID].pageID = pageID
-	// TODO: update lru count
+	// update lru count of the buffer
+	bm.updateLRUcount(victimID)
 
 	return victimID, nil
 }

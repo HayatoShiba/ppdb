@@ -15,6 +15,9 @@ type bufferDescriptor struct {
 	// dirty indicates whether the buffer is written
 	dirty bool
 
+	// allocated lru count when the buffer is used last for lru cache eviction policy
+	lruCount uint64
+
 	// https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/include/access/slru.h#L65
 	// statusのread in progressとか何？
 	// per buffer lock for io
