@@ -62,6 +62,11 @@ func (m *Manager) Begin() *Tx {
 	// after insertion of xip, lock can be released
 	m.Tm.ReleaseLock()
 
+	// take snapshot for the transaction
+	snap := m.Sm.TakeSnapshot()
+	// store txid and snapshot for vacuum
+	m.Sm.AddInProgressTxSnapshot(txID, *snap)
+
 	return NewTransaction(txID)
 }
 
@@ -72,6 +77,8 @@ func (m *Manager) Commit(tx Tx) {
 	// remove the txid from in progress txids for snapshot isolation
 	m.Sm.CompleteTxID(tx.ID())
 
+	m.Sm.CompleteTxSnapshot(tx.ID())
+
 	tx.SetState(StateCommitted)
 }
 
@@ -81,6 +88,8 @@ func (m *Manager) Abort(tx Tx) {
 	m.Cm.SetStateAborted(tx.ID())
 	// remove the txid from in progress txids for snapshot isolation
 	m.Sm.CompleteTxID(tx.ID())
+
+	m.Sm.CompleteTxSnapshot(tx.ID())
 
 	tx.SetState(StateAborted)
 }

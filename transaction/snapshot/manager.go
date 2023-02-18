@@ -79,6 +79,13 @@ type Manager struct {
 	// https://github.com/postgres/postgres/blob/a4adc31f6902f6fc29d74868e8969412fc590da9/src/include/storage/proc.h#L370-L371
 	inProgressTxIDs map[txid.TxID]struct{}
 
+	// snapshots  whose transactions are in progress
+	// vacuum has to know the oldest non removable transaction id
+	// with inProgressSnapshots, we can know the oldest xmin
+	// (transactions under the xmin are removable if they are dead)
+	// TODO: maybe, we can persist just oldest xmin, not snapshot map.
+	inProgressSnapshots map[txid.TxID]Snapshot
+
 	// latest completed txid. this is used for snapshot isolation
 	// this is used as xmax in snapshot.
 	latestCompletedTxID txid.TxID
@@ -147,6 +154,20 @@ func (m *Manager) CompleteTxID(txID txid.TxID) {
 	if txID.IsFollows(m.latestCompletedTxID) {
 		m.latestCompletedTxID = txID
 	}
+}
+
+// AddInProgressTxSnapshot adds the txid and snapshot to inProgressTxIDs
+// this is expected to be called when transaction id is newly allocated.
+// the allocated ids has to be stored to inProgressTxIDs.
+// the caller doesn't have to hold any lock. this can result in the case txid is stored only in
+// inProgressTxIDs, but not inProgressSnapshots. this case is considered when vacuum.
+func (m *Manager) AddInProgressTxSnapshot(txID txid.TxID, snap Snapshot) {
+	m.inProgressSnapshots[txID] = snap
+}
+
+// CompleteTxSnapshot removes the snapshot from in progress snapshots.
+func (m *Manager) CompleteTxSnapshot(txID txid.TxID) {
+	delete(m.inProgressSnapshots, txID)
 }
 
 // isTupleVisibleFromSnapshot determines the visibility of the tuple from the snapshot
