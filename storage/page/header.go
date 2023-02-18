@@ -95,6 +95,9 @@ const (
 	specialSpaceOffsetOffset offset = upperOffsetOffset + 2
 	// specialSpaceOffset is defined as uint16, so add 2 bytes
 	slotsOffset offset = specialSpaceOffsetOffset + 2
+
+	// lower offset exported for fsm and vm
+	LowerOffsetOffset = uint16(flagsOffset) + 2
 )
 
 // GetLSN returns lsn
