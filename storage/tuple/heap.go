@@ -97,7 +97,6 @@ func newTuple(xmin txid.TxID, ctid Tid, infomask uint16, data []byte) Tuple {
 }
 
 func (tup Tuple) size() int {
-	// free spaceを探すときにサイズが必要
 	return len(tup.data)
 }
 
