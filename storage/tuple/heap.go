@@ -89,8 +89,7 @@ const (
 func NewTuple(xmin txid.TxID, data []byte) TupleByte {
 	// when insert tuple, xmax is invalid
 	xmax := txid.InvalidTxID
-	// TODO: is infomask correct?
-	infomask := xminCommitted
+	infomask := 0
 	// when insert tuple, ctid can be invalid. it is expected to be inserted afterwards.
 	ctid := Tid{}
 	b := make([]byte, 0, tupleHeaderSize+len(data))
