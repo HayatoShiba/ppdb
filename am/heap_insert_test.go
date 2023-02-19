@@ -28,7 +28,7 @@ func TestInsertTuple(t *testing.T) {
 
 	tup := tuple.TestingNewTuple(txid.TxID(10), txid.InvalidTxID)
 	var pageID page.PageID = 10
-	err = insertTuple(p, tup, pageID)
+	_, err = insertTuple(p, tup, pageID)
 	assert.Nil(t, err)
 
 	// get and check tuple from the page

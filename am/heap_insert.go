@@ -58,7 +58,7 @@ func (m *Manager) HeapInsert(hinfo HeapInsertInfo, tx transaction.Tx) error {
 	}
 	p := m.bm.GetPage(bufID)
 	// put heap tuple
-	if err := insertTuple(p, tup, pageID); err != nil {
+	if _, err := insertTuple(p, tup, pageID); err != nil {
 		return errors.Wrap(err, "insertTuple failed")
 	}
 
@@ -136,7 +136,7 @@ func (m *Manager) getBufferForInsert(reln common.Relation, tupleSize int) (buffe
 
 // insertTuple inserts tuple into the buffer
 // https://github.com/postgres/postgres/blob/2dc2e4e31adb71502074c8c2bf9e0766347aa6e5/src/backend/access/heap/hio.c#L36
-func insertTuple(p page.PagePtr, tup tuple.TupleByte, pageID page.PageID) error {
+func insertTuple(p page.PagePtr, tup tuple.TupleByte, pageID page.PageID) (tuple.Tid, error) {
 	nidx := page.GetNSlotIndex(p)
 	// TODO: this is not unclear logic... should refactor.
 	// GetNSlotIndex() may return InvalidSlotIndex and AddItem() is also considered.
@@ -158,7 +158,7 @@ func insertTuple(p page.PagePtr, tup tuple.TupleByte, pageID page.PageID) error 
 	tup.SetCtid(tid)
 
 	if err := page.AddItem(p, page.ItemPtr(tup), insertSlotIdx); err != nil {
-		return errors.Wrap(err, "page.AddItem")
+		return tid, errors.Wrap(err, "page.AddItem")
 	}
-	return nil
+	return tid, nil
 }
