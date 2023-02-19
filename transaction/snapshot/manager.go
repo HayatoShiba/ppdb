@@ -273,6 +273,82 @@ func (m *Manager) IsTupleVisibleFromSnapshot(tuple tuple.TupleByte, snap *Snapsh
 	return false, nil
 }
 
+// TMResult is whether the tuple can be modified(updated/deleted/locked)
+type TMResult uint
+
+const (
+	// TMResultOK indicates the operation can be executed
+	TMResultOK TMResult = iota
+	// TMResultInvisible indicates the operation cannot be executed because the tuple is invisible
+	TMResultInvisible
+	// TMResultUpdated indicates the operation cannot be executed because the tuple has been updated
+	TMResultUpdated
+	// TMResultDeleted indicates the operation cannot be executed because the tuple has been deleted
+	TMResultDeleted
+	// TMResultBeingModified indicates whether the tuple is being modified concurrently by another transaction
+	// basically the transaction waits for other transaction to commit/abort, so this result is not returned by HeapDelete()
+	TMResultBeingModified
+)
+
+// CanTupleBeModified determines whether the tuple can be modified
+// the logic is basically the same as IsTupleVisibleFromSnapshot()
+// the difference is
+// - when there is tuple's xmax, find out whether the tuple is deleted or updated
+// - this doesn't use specific snapshot
+// https://github.com/postgres/postgres/blob/c3652cd84ac8aa60dd09a9743d4db6f20e985a2f/src/backend/access/heap/heapam_visibility.c#L965
+func (m *Manager) CanTupleBeModified(tuple tuple.TupleByte, tupleTid tuple.Tid) (TMResult, error) {
+	if !tuple.XminCommitted() {
+		if tuple.XminInvalid() {
+			return TMResultInvisible, nil
+		}
+		// check whether tuple's xmin is in progress
+		if m.IsInProgressTxID(tuple.Xmin()) {
+			// if xmin is in progress, then the tuple is invisible
+			return TMResultInvisible, nil
+		}
+		// we know xmin has been completed here.
+		// next, then transaction status has to be checked.
+		aborted, err := m.cm.IsTxAborted(tuple.Xmin())
+		if err != nil {
+			return TMResultInvisible, errors.Wrap(err, "m.cm.IsTxAborted failed")
+		}
+		if aborted {
+			// if xmin's transaction has been aborted, the tuple is invisible
+			return TMResultInvisible, nil
+		}
+
+		// here, we know the xmin's transaction has been committed(not aborted),
+		// postgres set transaction status hint bits for (probably) performance improvement of
+		// checking status next time
+		tuple.SetXminCommitted()
+	}
+
+	if !tuple.XmaxCommitted() {
+		if tuple.XmaxInvalid() {
+			return TMResultOK, nil
+		}
+		// so we know xmin has been committed here, check xmax in the same way
+		// if xmax is in progress, then the tuple is VISIBLE. because the tuple is not updated/deleted
+		if m.IsInProgressTxID(tuple.Xmax()) {
+			return TMResultBeingModified, nil
+		}
+		aborted, err := m.cm.IsTxAborted(tuple.Xmax())
+		if err != nil {
+			return TMResultInvisible, errors.Wrap(err, "m.cm.IsTxAborted failed")
+		}
+		if aborted {
+			return TMResultOK, nil
+		}
+		// here, xmax has been committed, so the tuple is invisible
+		tuple.SetXmaxCommitted()
+	}
+	// if the tuple has been updated, then version chain exists. (ctid points to the tuple of new version)
+	if tuple.Ctid() != tupleTid {
+		return TMResultUpdated, nil
+	}
+	return TMResultDeleted, nil
+}
+
 // IsTupleVacuumable checks whether the tuple can be vacuumed or not.
 // to determine the visibility of tuple, this function checks:
 // - the commit status of xmin,xmax of the tuple
