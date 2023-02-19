@@ -11,10 +11,8 @@ import (
 
 func TestSetXmin(t *testing.T) {
 	data := []byte{1, 2, 3}
-	ctid := NewTid(page.FirstPageID, page.FirstSlotIndex)
 	xmin := txid.FirstTxID
-	tup := newTuple(xmin, ctid, xminCommitted, data)
-	btup := marshalTuple(tup)
+	btup := NewTuple(xmin, data)
 
 	expected := txid.TxID(100)
 	btup.SetXmin(expected)
@@ -23,10 +21,8 @@ func TestSetXmin(t *testing.T) {
 
 func TestSetXmax(t *testing.T) {
 	data := []byte{1, 2, 3}
-	ctid := NewTid(page.FirstPageID, page.FirstSlotIndex)
 	xmin := txid.FirstTxID
-	tup := newTuple(xmin, ctid, xminCommitted, data)
-	btup := marshalTuple(tup)
+	btup := NewTuple(xmin, data)
 
 	expected := txid.TxID(100)
 	btup.SetXmax(expected)
@@ -36,10 +32,8 @@ func TestSetXmax(t *testing.T) {
 
 func TestSetCtid(t *testing.T) {
 	data := []byte{1, 2, 3}
-	ctid := NewTid(page.FirstPageID, page.FirstSlotIndex)
 	xmin := txid.FirstTxID
-	tup := newTuple(xmin, ctid, xminCommitted, data)
-	btup := marshalTuple(tup)
+	btup := NewTuple(xmin, data)
 
 	expected := NewTid(page.PageID(21), page.SlotIndex(9))
 	btup.SetCtid(expected)
@@ -49,10 +43,9 @@ func TestSetCtid(t *testing.T) {
 
 func TestSetXminCommitted(t *testing.T) {
 	data := []byte{1, 2, 3}
-	ctid := NewTid(page.FirstPageID, page.FirstSlotIndex)
 	xmin := txid.FirstTxID
-	tup := newTuple(xmin, ctid, xminFrozen, data)
-	btup := marshalTuple(tup)
+	btup := NewTuple(xmin, data)
+	btup.SetXminFrozen()
 
 	got := btup.XminCommitted()
 	assert.False(t, got)

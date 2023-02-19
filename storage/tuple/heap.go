@@ -85,31 +85,25 @@ const (
 	dataOffset = 18
 )
 
-// newTuple initializes tuple
-func newTuple(xmin txid.TxID, ctid Tid, infomask uint16, data []byte) Tuple {
-	return Tuple{
-		xmin:     xmin,
-		xmax:     txid.InvalidTxID,
-		ctid:     ctid,
-		infomask: infomask,
-		data:     data,
-	}
+// NewTuple initializes tuple
+func NewTuple(xmin txid.TxID, data []byte) TupleByte {
+	// when insert tuple, xmax is invalid
+	xmax := txid.InvalidTxID
+	// TODO: is infomask correct?
+	infomask := xminCommitted
+	// when insert tuple, ctid can be invalid. it is expected to be inserted afterwards.
+	ctid := Tid{}
+	b := make([]byte, 0, tupleHeaderSize+len(data))
+	b = binary.LittleEndian.AppendUint32(b, uint32(xmin))
+	b = binary.LittleEndian.AppendUint32(b, uint32(xmax))
+	b = binary.LittleEndian.AppendUint64(b, marshalTid(ctid))
+	b = binary.LittleEndian.AppendUint16(b, uint16(infomask))
+	b = append(b, data...)
+	return TupleByte(b)
 }
 
 func (tup Tuple) size() int {
 	return len(tup.data)
-}
-
-// marshalTuple marshals tuple
-// this function is expected to be called when insert new tuple
-func marshalTuple(tuple Tuple) TupleByte {
-	b := make([]byte, 0, tupleHeaderSize+len(tuple.data))
-	b = binary.LittleEndian.AppendUint32(b, uint32(tuple.xmin))
-	b = binary.LittleEndian.AppendUint32(b, uint32(tuple.xmax))
-	b = binary.LittleEndian.AppendUint64(b, marshalTid(tuple.ctid))
-	b = binary.LittleEndian.AppendUint16(b, uint16(tuple.infomask))
-	b = append(b, tuple.data...)
-	return TupleByte(b)
 }
 
 // Xmin returns xmin
