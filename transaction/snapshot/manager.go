@@ -149,6 +149,12 @@ func (m *Manager) AddInProgressTxID(txID txid.TxID) {
 	m.inProgressTxIDs[txID] = struct{}{}
 }
 
+// IsInProgressTxID checks whether the transaction is in progress in terms of the system (not snapshot)
+func (m *Manager) IsInProgressTxID(txID txid.TxID) bool {
+	_, ok := m.inProgressTxIDs[txID]
+	return ok
+}
+
 // CompleteTxID removes the txid from in progress txids.
 // if the txid is latest completed id, then update the field.
 func (m *Manager) CompleteTxID(txID txid.TxID) {
