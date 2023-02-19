@@ -213,43 +213,57 @@ func (m *Manager) IsTupleVisibleFromSnapshot(tuple tuple.TupleByte, snap *Snapsh
 			- if tuple's xmax doesn't exist in xip, then xmax has been completed(committed/aborted)
 				- if xmax has been committed, then invisible to this snapshot
 				- if xmax has been aborted, then VISIBLE to this snapshot
-
-		notice: tuple in postgres has transaction status hint bits in t_infomask, but ppdb does not implement it
 	*/
 
-	// at first, check whether tuple's xmin is in progress
-	if snap.isInProgress(tuple.Xmin()) {
-		// if xmin is in progress, then the tuple is invisible
-		return false, nil
-	}
-	// we know xmin has been completed here.
-	// next, then transaction status has to be checked.
-	aborted, err := m.cm.IsTxAborted(tuple.Xmin())
-	if err != nil {
-		return false, errors.Wrap(err, "m.cm.IsTxAborted failed")
-	}
-	if aborted {
-		// if xmin's transaction has been aborted, the tuple is invisible
-		return false, nil
+	if !tuple.XminCommitted() {
+		// if tuple's xmin > snapshot's xmax
+		if tuple.Xmin().IsFollows(snap.xmax) {
+			return false, nil
+		}
+
+		// check whether tuple's xmin is in progress
+		if snap.isInProgress(tuple.Xmin()) {
+			// if xmin is in progress, then the tuple is invisible
+			return false, nil
+		}
+		// we know xmin has been completed here.
+		// next, then transaction status has to be checked.
+		aborted, err := m.cm.IsTxAborted(tuple.Xmin())
+		if err != nil {
+			return false, errors.Wrap(err, "m.cm.IsTxAborted failed")
+		}
+		if aborted {
+			// if xmin's transaction has been aborted, the tuple is invisible
+			return false, nil
+		}
+
+		// here, we know the xmin's transaction has been committed(not aborted),
+		// postgres set transaction status hint bits for (probably) performance improvement of
+		// checking status next time
+		tuple.SetXminCommitted()
 	}
 
-	// here, we know the xmin's transaction has been committed(not aborted),
-	// postgres set transaction status hint bits for (probably) performance improvement of
-	// checking status next time
+	if !tuple.XmaxCommitted() {
+		// if tuple's xmax > snapshot's xmax
+		if tuple.Xmax().IsFollows(snap.xmax) {
+			return true, nil
+		}
 
-	// so we know xmin has been committed here, check xmax in the same way
-	// if xmax is in progress, then the tuple is VISIBLE. because the tuple is not updated/deleted
-	if snap.isInProgress(tuple.Xmax()) {
-		return true, nil
+		// so we know xmin has been committed here, check xmax in the same way
+		// if xmax is in progress, then the tuple is VISIBLE. because the tuple is not updated/deleted
+		if snap.isInProgress(tuple.Xmax()) {
+			return true, nil
+		}
+		aborted, err := m.cm.IsTxAborted(tuple.Xmax())
+		if err != nil {
+			return false, errors.Wrap(err, "m.cm.IsTxAborted failed")
+		}
+		if aborted {
+			return true, nil
+		}
+		// here, xmax has been committed, so the tuple is invisible
+		tuple.SetXmaxCommitted()
 	}
-	aborted, err = m.cm.IsTxAborted(tuple.Xmax())
-	if err != nil {
-		return false, errors.Wrap(err, "m.cm.IsTxAborted failed")
-	}
-	if aborted {
-		return true, nil
-	}
-	// here, xmax has been committed, so the tuple is invisible
 	return false, nil
 }
 
