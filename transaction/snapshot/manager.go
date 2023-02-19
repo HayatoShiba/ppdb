@@ -216,6 +216,9 @@ func (m *Manager) IsTupleVisibleFromSnapshot(tuple tuple.TupleByte, snap *Snapsh
 	*/
 
 	if !tuple.XminCommitted() {
+		if tuple.XminInvalid() {
+			return false, nil
+		}
 		// if tuple's xmin > snapshot's xmax
 		if tuple.Xmin().IsFollows(snap.xmax) {
 			return false, nil
@@ -244,6 +247,9 @@ func (m *Manager) IsTupleVisibleFromSnapshot(tuple tuple.TupleByte, snap *Snapsh
 	}
 
 	if !tuple.XmaxCommitted() {
+		if tuple.XmaxInvalid() {
+			return true, nil
+		}
 		// if tuple's xmax > snapshot's xmax
 		if tuple.Xmax().IsFollows(snap.xmax) {
 			return true, nil
