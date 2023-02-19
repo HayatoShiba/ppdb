@@ -65,6 +65,7 @@ func (m *Manager) Begin() *Tx {
 	// TODO: this has to be executed in each statement in transaction, not in BEGIN.
 	// TODO: enable to pass isolation level to Begin(). currently READ COMMITTED is fixed.
 	level := defaultIsolationlevel
+	var snap snapshot.Snapshot
 	if isIsolationUsesSameSnapshot(level) {
 		_, ok := m.Sm.GetInProgressTxSnapshot(txID)
 		if !ok {
@@ -81,7 +82,7 @@ func (m *Manager) Begin() *Tx {
 		m.Sm.AddInProgressTxSnapshot(txID, *snap)
 	}
 
-	return NewTransaction(txID, level)
+	return NewTransaction(txID, level, snap)
 }
 
 // Commit commits transaction
