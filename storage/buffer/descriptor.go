@@ -85,6 +85,7 @@ func newDescriptors() [bufferNum]*descriptor {
 	for i := 0; i < bufferNum; i++ {
 		descs[i] = &descriptor{
 			nextFreeID: BufferID(i + 1),
+			tag:        tag{valid: false},
 		}
 	}
 	descs[bufferNum-1].nextFreeID = freeListInvalidID

@@ -260,9 +260,11 @@ func (m *Manager) ReadBuffer(rel common.Relation, forkNum disk.ForkNumber, pageI
 		desc.unpin()
 	}
 
-	// here, buffer table is locking and the buffer header lock is held and the buffer is pinned
-	// delete the old buffer tag entry from buffer table
-	delete(m.table.table, desc.tag)
+	if desc.tag.valid {
+		// here, buffer table is locking and the buffer header lock is held and the buffer is pinned
+		// delete the old buffer tag entry from buffer table
+		delete(m.table.table, desc.tag)
+	}
 
 	// postgres releases buffer header lock then deletes the old entry from buffer table
 	// but is it correct? do we have to delete the old entry at first to prevent other goroutines from entering this buffer for old entry? I'm not sure....

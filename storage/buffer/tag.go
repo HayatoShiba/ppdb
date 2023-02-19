@@ -16,6 +16,8 @@ type tag struct {
 	forkNum disk.ForkNumber
 	// page id
 	pageID page.PageID
+	// if valid is false, this descriptor hasn't been used so tag is invalid
+	valid bool
 }
 
 // newBufferTag initializes buffer tag
