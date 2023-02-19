@@ -68,7 +68,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 
 		sxip := make(map[txid.TxID]struct{})
 		sxip[14] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(abortedXmin, xmax), s)
 		assert.Nil(t, err)
@@ -85,7 +85,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 
 		sxip := make(map[txid.TxID]struct{})
 		sxip[14] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(xmin, xmax), s)
 		assert.Nil(t, err)
@@ -100,7 +100,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 		xmin := txid.TxID(15)
 		sxip := make(map[txid.TxID]struct{})
 		sxip[15] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(xmin, txid.InvalidTxID), s)
 		assert.Nil(t, err)
@@ -117,7 +117,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 
 		sxip := make(map[txid.TxID]struct{})
 		sxip[15] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(xmin, txid.InvalidTxID), s)
 		assert.Nil(t, err)
@@ -135,7 +135,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 
 		sxip := make(map[txid.TxID]struct{})
 		sxip[xmax] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(xmin, xmax), s)
 		assert.Nil(t, err)
@@ -152,7 +152,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 
 		sxip := make(map[txid.TxID]struct{})
 		sxip[14] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(xmin, txid.InvalidTxID), s)
 		assert.Nil(t, err)
@@ -171,7 +171,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 
 		sxip := make(map[txid.TxID]struct{})
 		sxip[14] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(xmin, xmax), s)
 		assert.Nil(t, err)
@@ -190,7 +190,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 
 		sxip := make(map[txid.TxID]struct{})
 		sxip[14] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(xmin, xmax), s)
 		assert.Nil(t, err)
@@ -208,7 +208,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 
 		sxip := make(map[txid.TxID]struct{})
 		sxip[xmax] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(xmin, xmax), s)
 		assert.Nil(t, err)
@@ -227,7 +227,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 
 		sxip := make(map[txid.TxID]struct{})
 		sxip[15] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(xmin, xmax), s)
 		assert.Nil(t, err)
@@ -246,7 +246,7 @@ func TestIsTupleVisibleFromSnapshot(t *testing.T) {
 
 		sxip := make(map[txid.TxID]struct{})
 		sxip[15] = struct{}{}
-		s := newSnapshot(txid.TxID(13), txid.TxID(18), sxip)
+		s := NewSnapshot(txid.TxID(13), txid.TxID(18), sxip)
 
 		isVisible, err := m.IsTupleVisibleFromSnapshot(tuple.TestingNewTuple(xmin, xmax), s)
 		assert.Nil(t, err)

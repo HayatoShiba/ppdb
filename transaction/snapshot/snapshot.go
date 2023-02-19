@@ -27,8 +27,8 @@ type Snapshot struct {
 	// https://github.com/postgres/postgres/blob/27b77ecf9f4d5be211900eda54d8155ada50d696/src/include/utils/snapshot.h#L187
 }
 
-// newSnapshot initializes snapshot
-func newSnapshot(xmin, xmax txid.TxID, xip map[txid.TxID]struct{}) *Snapshot {
+// NewSnapshot initializes snapshot
+func NewSnapshot(xmin, xmax txid.TxID, xip map[txid.TxID]struct{}) *Snapshot {
 	return &Snapshot{
 		xmin: xmin,
 		xmax: xmax,

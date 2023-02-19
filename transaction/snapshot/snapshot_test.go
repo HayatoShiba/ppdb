@@ -73,7 +73,7 @@ func TestIsInProgress(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			snap := newSnapshot(tt.xmin, tt.xmax, xip)
+			snap := NewSnapshot(tt.xmin, tt.xmax, xip)
 			got := snap.isInProgress(tt.targetTxID)
 			assert.Equal(t, tt.expected, got)
 		})
