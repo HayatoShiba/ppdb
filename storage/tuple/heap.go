@@ -2,7 +2,7 @@
 Simple implementation of heap tuple.
 Postgres has a lot, like null bitmap, various hint bits...
 ppdb currently doesn't have plan to implement data type, so omit many fields.
-Tuple in ppdb has only three fields currently.
+Tuple in ppdb has only four fields currently.
 
 - xmin: in what transaction the tuple is inserted
 - xmax: in what transaction the tuple is updated or deleted
@@ -55,7 +55,6 @@ type Tuple struct {
 
 /*
 TupleByte is on-disk byte slice for tuple
-tuple is
 
 - tuple header: 16 byte
   - xmin: 4 byte
@@ -63,7 +62,7 @@ tuple is
   - ctid: 8 byte
   - infomask: 2byte
 
-- tuple data: 1 byte
+- tuple data
 */
 type TupleByte []byte
 
@@ -85,12 +84,12 @@ const (
 	dataOffset = 18
 )
 
-// NewTuple initializes tuple
+// NewTuple initializes tuple. this is expected to be used when inserting new tuple.
 func NewTuple(xmin txid.TxID, data []byte) TupleByte {
 	// when insert tuple, xmax is invalid
 	xmax := txid.InvalidTxID
 	infomask := 0
-	// when insert tuple, ctid can be invalid. it is expected to be inserted afterwards.
+	// when insert tuple, ctid can be invalid. it is expected to be updated after NewTuple() returns.
 	ctid := Tid{}
 	b := make([]byte, 0, tupleHeaderSize+len(data))
 	b = binary.LittleEndian.AppendUint32(b, uint32(xmin))
@@ -99,10 +98,6 @@ func NewTuple(xmin txid.TxID, data []byte) TupleByte {
 	b = binary.LittleEndian.AppendUint16(b, uint16(infomask))
 	b = append(b, data...)
 	return TupleByte(b)
-}
-
-func (tup Tuple) size() int {
-	return len(tup.data)
 }
 
 // Xmin returns xmin
@@ -144,7 +139,7 @@ func (t TupleByte) SetCtid(ctid Tid) {
 
 // infomask bits
 // https://github.com/postgres/postgres/blob/75f49221c22286104f032827359783aa5f4e6646/src/include/access/htup_details.h#L203-L210
-// I'm not sure why these numbers are used 0100, 0200, 0400. why 0300 skipped?
+// 0x01000, 0x02000 are used and 0x03000 is not used considering bit operation.
 const (
 	// xminCommitted indicates xmin has been committed
 	// when tuple visibility is checked, clog has to be checked. it may result in disk IO

@@ -54,6 +54,7 @@ func NewManager(tm *txid.Manager, cm clog.Manager, sm *snapshot.Manager) *Manage
 
 // Begin begins transaction
 // see https://github.com/postgres/postgres/blob/20432f8731404d2cef2a155144aca5ab3ae98e95/src/backend/access/transam/xact.c#L2925
+// note: probably, in postgres, allocation of tx id will be done when the first statement in transaction is executed, not in begin()
 func (m *Manager) Begin() *Tx {
 	// allocate new transaction id
 	txID := m.Tm.AllocateNewTxID()
@@ -62,27 +63,35 @@ func (m *Manager) Begin() *Tx {
 	// after insertion of xip, lock can be released
 	m.Tm.ReleaseLock()
 
-	// TODO: this has to be executed in each statement in transaction, not in BEGIN.
 	// TODO: enable to pass isolation level to Begin(). currently READ COMMITTED is fixed.
 	level := defaultIsolationlevel
-	var snap snapshot.Snapshot
-	if isIsolationUsesSameSnapshot(level) {
-		_, ok := m.Sm.GetInProgressTxSnapshot(txID)
+
+	// TODO: snapshot.Snapshot() is not good argument. this can result in bug probably
+	return NewTransaction(txID, level, snapshot.Snapshot{})
+}
+
+// DoStatement is expected to be called when statement is executed by query executor?
+// if this is the first statement in transaction and snapshot hasn't been taken, snapshot must be taken.
+// transaction isolation level is considered when taking transaction.
+func (m *Manager) DoStatement(tx Tx) Tx {
+	if isIsolationUsesSameSnapshot(tx.IsolationLevel()) {
+		_, ok := m.Sm.GetInProgressTxSnapshot(tx.ID())
 		if !ok {
 			// this is the first snapshot after the transaction starts
 			// take snapshot for the transaction
 			snap := m.Sm.TakeSnapshot()
 			// store txid and snapshot for vacuum
-			m.Sm.AddInProgressTxSnapshot(txID, *snap)
+			m.Sm.AddInProgressTxSnapshot(tx.ID(), *snap)
+			tx.snapshot = *snap
 		}
 	} else {
 		// take snapshot for the transaction
 		snap := m.Sm.TakeSnapshot()
 		// store txid and snapshot for vacuum
-		m.Sm.AddInProgressTxSnapshot(txID, *snap)
+		m.Sm.AddInProgressTxSnapshot(tx.ID(), *snap)
+		tx.snapshot = *snap
 	}
-
-	return NewTransaction(txID, level, snap)
+	return tx
 }
 
 // Commit commits transaction
