@@ -64,7 +64,6 @@ func (tm *Manager) AllocateNewTxID() TxID {
 	// if the newly allocated transaction id exceeds the threshold, then start autovacuum
 	// see https://github.com/postgres/postgres/blob/a448e49bcbe40fb72e1ed85af910dd216d45bad8/src/backend/access/transam/varsup.c#L83-L166
 	// https://github.com/postgres/postgres/blob/a448e49bcbe40fb72e1ed85af910dd216d45bad8/src/backend/access/transam/varsup.c#L345
-	tm.Unlock()
 	return txID
 }
 
@@ -73,4 +72,9 @@ func (tm *Manager) AllocateNewTxID() TxID {
 // this is expected to be called when vacuum calculates the threshold to freeze.
 func (tm *Manager) ReadNewTxID() TxID {
 	return tm.nextTxID
+}
+
+// ReleaseLock releases lock
+func (tm *Manager) ReleaseLock() {
+	tm.Unlock()
 }

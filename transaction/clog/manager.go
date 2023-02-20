@@ -44,10 +44,10 @@ import (
 )
 
 type Manager interface {
-	IsTxCommitted(txID txid.TxID) (bool, error)
-	IsTxAborted(id txid.TxID) (bool, error)
-	SetStateCommitted(txID txid.TxID) error
-	SetStateAborted(txID txid.TxID) error
+	IsTxCommitted(txid.TxID) (bool, error)
+	IsTxAborted(txid.TxID) (bool, error)
+	SetStateCommitted(txid.TxID) error
+	SetStateAborted(txid.TxID) error
 }
 
 // ManagerImpl is clog manager
